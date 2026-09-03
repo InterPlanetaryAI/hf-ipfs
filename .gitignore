@@ -1,0 +1,6 @@
+# Build output
+/hf-ipfs
+/hf-ipfs.exe
+
+# Test scratch space
+/tmp/
