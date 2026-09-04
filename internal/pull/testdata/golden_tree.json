@@ -1,0 +1,35 @@
+{
+ "format_version": 1,
+ "files": {
+  ".gitattributes": {
+   "size": 1519,
+   "blob_id": "a6344aac8c09253b3b630fb776ae94478aa0275b"
+  },
+  "README.md": {
+   "size": 3344,
+   "blob_id": "d2baa7ee8a310c9e4dc733cc6537b63b5250a8fb"
+  },
+  "config.json": {
+   "size": 3917,
+   "blob_id": "8e95fad94e16745e1e15701fe2596058ca25c0d4"
+  },
+  "model.safetensors": {
+   "size": 1626451404,
+   "blob_id": "f303a51187cdc9d0d003880e8eac8805972af58a",
+   "lfs_sha256": "b85fdb50b7d6123a967d5ee4a505e222baff8d2f7ad6bbf353578c1a61dfbac9",
+   "lfs_size": 1626451404,
+   "xet_hash": "64b4eafe68248256b27c108654f9afeb6c52bcfc6e3c26c96ea20bdd02e9f3cf"
+  },
+  "preprocessor_config.json": {
+   "size": 476,
+   "blob_id": "f87ad51386a09aa3f08764ceeda536d360314cda"
+  },
+  "sapiens2_0.4b_seg.safetensors": {
+   "size": 1626451404,
+   "blob_id": "f303a51187cdc9d0d003880e8eac8805972af58a",
+   "lfs_sha256": "b85fdb50b7d6123a967d5ee4a505e222baff8d2f7ad6bbf353578c1a61dfbac9",
+   "lfs_size": 1626451404,
+   "xet_hash": "64b4eafe68248256b27c108654f9afeb6c52bcfc6e3c26c96ea20bdd02e9f3cf"
+  }
+ }
+}

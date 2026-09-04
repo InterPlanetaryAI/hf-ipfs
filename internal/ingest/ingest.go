@@ -52,6 +52,13 @@ func Run(ctx context.Context, n *node.Node, repoID string, t hfcache.RepoType, c
 		return nil, fmt.Errorf("snapshot %s of %s contains no files", short(commit), repoID)
 	}
 
+	// Walking symlinks recovers bytes, sizes and hashes but not which files
+	// are LFS-backed nor what their Xet hashes are. The trees/<commit>.json
+	// the `hf` CLI left behind knows both, and carrying them into the
+	// manifest is what lets this node serve full-fidelity metadata to
+	// pullers. No-op when no tree exists.
+	hfcache.EnrichFromTree(paths, commit, files)
+
 	root, chunks, err := buildTree(ctx, n, files, progress)
 	if err != nil {
 		return nil, err
