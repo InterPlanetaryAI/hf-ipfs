@@ -28,17 +28,17 @@ would be valid in only one of the two worlds.
 
 ## Pull the published image
 
-CI publishes to GHCR on every push to `main` and every `v*` tag:
+Versioned images are published when a release is published; `:main` is rebuilt on every push to `main`:
 
 ```bash
 docker pull ghcr.io/<owner>/hf-ipfs:latest   # newest tag
 docker pull ghcr.io/<owner>/hf-ipfs:main     # newest main
 ```
 
-Tags: `X.Y.Z` and `X.Y` per release tag, `latest` on the newest `v*`,
-`main` on the branch. Public repo: no login needed. Private repo:
-`docker login ghcr.io` (username = your GitHub handle, PAT with
-`read:packages`) or `gh auth docker`.
+Tags: `X.Y.Z`, `X.Y`, `X` and `latest` per release (multi-arch: `linux/amd64`,
+`linux/arm64`), `main` on the branch, `pr-N` for maintainer-approved PRs.
+Public repo: no login needed. Private repo: `docker login ghcr.io`
+(username = your GitHub handle, PAT with `read:packages`) or `gh auth docker`.
 
 ## Build locally
 
