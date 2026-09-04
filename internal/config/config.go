@@ -73,6 +73,17 @@ type Config struct {
 	// makes a NAT'd node dialable without manual configuration.
 	NATPortMap bool
 
+	// RelayService runs this node as a circuit v2 relay *service* so other
+	// private peers can relay through it. libp2p only activates it when
+	// AutoNAT deems us publicly reachable.
+	RelayService bool
+
+	// StaticRelays are circuit v2 relay multiaddrs a private node
+	// reserves its own /p2p-circuit address through. Without this a NAT'd
+	// node has no relayed address to announce — --relay-bulk alone does
+	// not make it dialable.
+	StaticRelays []string
+
 	// RelayBulk permits bulk block streaming over circuit-relayed
 	// (limited) connections. Off by default: a relay carrying a 40 GiB
 	// safetensors shard is somebody else's bandwidth bill. Hole-punched

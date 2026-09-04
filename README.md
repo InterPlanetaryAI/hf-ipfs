@@ -110,7 +110,7 @@ only, to join the DHT), `--bootstrap <multiaddr>` (replace the default
 bootstrappers), `--isolated` (private DHT, no bootstrappers), `--force`,
 `--chunk-size`, `--no-watch`, `--dht-client`, `--rescan <dur>`, `--log-level`,
 and for reachability: `--listen <ma>`, `--no-relay`, `--no-hole-punch`,
-`--no-nat-portmap`, `--relay-bulk`.
+`--no-nat-portmap`, `--relay-bulk`, `--relay-service`, `--static-relay <ma>`.
 
 ## How it works
 
@@ -335,6 +335,12 @@ Two of these bear directly on the transfer:
   `handleBlocks` resets as defence in depth. `--relay-bulk` opts back in.
   Direct and hole-punched connections are never `Limited`, so they are
   unaffected.
+* **Relaying for a NAT'd peer needs both ends wired up.** `--relay-bulk`
+  only unblocks the gate. The public node must run `--relay-service`
+  (circuit v2 relay service, activated once AutoNAT says we're public),
+  and the NAT'd seeder must run `--static-relay <relay-ma>` so autorelay
+  reserves a `/p2p-circuit` address and announces it. Without a reserved
+  circuit address the seeder is simply never dialable, bulk flag or not.
 
 **Fixed port.** The default listen address is `/ip4/0.0.0.0/tcp/4008` —
 fixed rather than `tcp/0` on purpose, because an ephemeral port cannot be

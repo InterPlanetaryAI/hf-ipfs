@@ -109,6 +109,30 @@ func New(ctx context.Context, cfg *config.Config) (*Node, error) {
 		if cfg.NATPortMap {
 			opts = append(opts, libp2p.NATPortMap())
 		}
+		// Relay *for others*. Distinct from EnableRelay above, which is
+		// only the client side. libp2p activates this once AutoNAT deems
+		// us publicly reachable.
+		if cfg.Relay && cfg.RelayService {
+			opts = append(opts, libp2p.EnableRelayService())
+		}
+		// Reserve our own /p2p-circuit address through a known relay.
+		// Without this a NAT'd seeder has no relayed address to announce,
+		// and --relay-bulk alone changes nothing for pullers.
+		if cfg.Relay && len(cfg.StaticRelays) > 0 {
+			relays := make([]peer.AddrInfo, 0, len(cfg.StaticRelays))
+			for _, s := range cfg.StaticRelays {
+				m, err := ma.NewMultiaddr(s)
+				if err != nil {
+					return nil, fmt.Errorf("static relay %q: %w", s, err)
+				}
+				ai, err := peer.AddrInfoFromP2pAddr(m)
+				if err != nil {
+					return nil, fmt.Errorf("static relay %q must include /p2p/<peer-id>: %w", s, err)
+				}
+				relays = append(relays, *ai)
+			}
+			opts = append(opts, libp2p.EnableAutoRelayWithStaticRelays(relays))
+		}
 	}
 	h, err := libp2p.New(opts...)
 	if err != nil {
@@ -527,7 +551,7 @@ func (n *Node) handleMap(s network.Stream) {
 		resp := wire.MapResponse{
 			CommitHash: req.CommitHash,
 			Error: "peer will not stream bulk data over a circuit relay; it needs a " +
-				"publicly reachable address, or the puller must pass --relay-bulk",
+				"publicly reachable address, or the seeder must run with --relay-bulk",
 		}
 		_ = s.SetWriteDeadline(time.Now().Add(30 * time.Second))
 		_ = protoio.WriteJSON(s, &resp)

@@ -182,7 +182,8 @@ func cmdDaemon(args []string) error {
 	var listen, bootstrap, connect stringList
 	var chunkSize int64
 	var noWatch, dhtClient, isolated bool
-	var noRelay, noNatPortMap, noHolePunch, relayBulk bool
+	var noRelay, noNatPortMap, noHolePunch, relayBulk, relayService bool
+	var staticRelays stringList
 	var rescan time.Duration
 
 	fs.Var(&listen, "listen", "libp2p listen multiaddr (repeatable)")
@@ -199,6 +200,10 @@ func cmdDaemon(args []string) error {
 	fs.BoolVar(&noHolePunch, "no-hole-punch", false, "disable DCUtR hole punching")
 	fs.BoolVar(&relayBulk, "relay-bulk", false,
 		"allow bulk block streaming over circuit relays (costs the relay operator bandwidth)")
+	fs.BoolVar(&relayService, "relay-service", false,
+		"run a circuit v2 relay service so private peers can relay through us (needs public reachability)")
+	fs.Var(&staticRelays, "static-relay",
+		"circuit v2 relay multiaddr (with /p2p/<peer-id>) to reserve our relayed address through (repeatable)")
 	fs.DurationVar(&rescan, "rescan", 5*time.Minute, "periodic cache rescan interval (0 disables)")
 
 	if err := fs.Parse(splitArgs(fs, args)); err != nil {
@@ -225,6 +230,8 @@ func cmdDaemon(args []string) error {
 	cfg.NATPortMap = !noNatPortMap
 	cfg.HolePunch = !noHolePunch
 	cfg.RelayBulk = relayBulk
+	cfg.RelayService = relayService
+	cfg.StaticRelays = staticRelays
 	cfg.RescanInterval = rescan
 	if err := c.apply(cfg); err != nil {
 		return err
@@ -261,9 +268,10 @@ func cmdDaemon(args []string) error {
 		bootDesc = fmt.Sprintf("%d custom", len(cfg.Bootstrap))
 	}
 	fmt.Printf("  dht     : server=%t bootstrap=%s\n", cfg.DHTServer, bootDesc)
-	fmt.Printf("  nat     : portmap=%s relay=%s holepunch=%s bulk-over-relay=%s\n",
+	fmt.Printf("  nat     : portmap=%s relay=%s holepunch=%s bulk-over-relay=%s relay-service=%s static-relays=%d\n",
 		onOff(cfg.NATPortMap && !cfg.Isolated), onOff(cfg.Relay),
-		onOff(cfg.HolePunch && !cfg.Isolated), onOff(cfg.RelayBulk))
+		onOff(cfg.HolePunch && !cfg.Isolated), onOff(cfg.RelayBulk),
+		onOff(cfg.RelayService && !cfg.Isolated), len(cfg.StaticRelays))
 
 	n.DialPeers(ctx)
 
