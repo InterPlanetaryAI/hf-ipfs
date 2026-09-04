@@ -32,7 +32,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/ipai/hf-ipfs/internal/config"
-	"github.com/ipai/hf-ipfs/internal/hfapi"
 	"github.com/ipai/hf-ipfs/internal/hfcache"
 	"github.com/ipai/hf-ipfs/internal/mapping"
 	"github.com/ipai/hf-ipfs/internal/node"
@@ -60,6 +59,14 @@ type Options struct {
 	Connect []string
 
 	Force bool
+
+	// Sources selects where content may come from. The zero value means
+	// "use the default": swarm first, Hugging Face as fallback.
+	Sources Sources
+
+	// Token authenticates Hub API and fallback download requests. Empty
+	// means "use whatever this node was configured with".
+	Token string
 }
 
 type EventFunc func(wire.ControlEvent) error
@@ -83,7 +90,7 @@ func Run(ctx context.Context, n *node.Node, opts Options, ev EventFunc) error {
 	if commit == "" {
 		ev(wire.ControlEvent{Type: "progress",
 			Message: fmt.Sprintf("step A: resolving %s against %s", opts.RepoID, n.Cfg.HFEndpoint)})
-		client := hfapi.NewClient(n.Cfg.HFEndpoint)
+		client := hfClient(n, opts.Token)
 		got, err := client.LatestCommit(ctx, opts.RepoID, opts.RepoType)
 		if err != nil {
 			return fmt.Errorf("step A (resolve hash): %w", err)
@@ -109,6 +116,37 @@ func Run(ctx context.Context, n *node.Node, opts Options, ev EventFunc) error {
 		}
 	}
 
+	src := opts.Sources.resolve()
+
+	var p2pErr error
+	if src.P2P {
+		if err := pullFromPeers(ctx, n, paths, commit, ref, opts, ev); err != nil {
+			p2pErr = err
+		} else {
+			return nil
+		}
+	}
+	if !src.HF {
+		return p2pErr
+	}
+	if src.P2P {
+		ev(wire.ControlEvent{Type: "progress",
+			Message: fmt.Sprintf("p2p could not deliver (%v); falling back to Hugging Face", p2pErr)})
+	}
+	return pullFromHF(ctx, n, paths, commit, ref, opts, ev)
+}
+
+// pullFromPeers runs steps B through E against the swarm: locate providers, ask
+// each which CID backs the commit, stream the DAG, and link the result into the
+// HF cache. It returns the last failure when no provider could serve the repo.
+func pullFromPeers(
+	ctx context.Context,
+	n *node.Node,
+	paths hfcache.Paths,
+	commit, ref string,
+	opts Options,
+	ev EventFunc,
+) error {
 	// ---- Step B: find providers on the DHT ------------------------------
 	providers := make([]peer.AddrInfo, 0, 8)
 	for _, maddr := range opts.Peers {
@@ -128,13 +166,16 @@ func Run(ctx context.Context, n *node.Node, opts Options, ev EventFunc) error {
 		}
 		ev(wire.ControlEvent{Type: "progress", Message: "joined the DHT via " + maddr})
 	}
-	// libp2p hands freshly dialed peers to the DHT asynchronously; give that a
-	// moment or the lookup races an empty routing table.
-	if len(opts.Peers) > 0 || len(opts.Connect) > 0 {
-		if size := n.WaitForRoutingTable(ctx, 3*time.Second); size == 0 {
-			ev(wire.ControlEvent{Type: "progress",
-				Message: "warn: DHT routing table still empty after dialing"})
-		}
+	// libp2p hands freshly dialed peers to the DHT asynchronously, and a
+	// cold-start bootstrap takes a few seconds. Without this the lookup races
+	// an empty routing table and reports "no peers found".
+	wait := 3 * time.Second
+	if len(opts.Peers) == 0 && len(opts.Connect) == 0 {
+		wait = 15 * time.Second
+	}
+	if size := n.WaitForRoutingTable(ctx, wait); size == 0 {
+		ev(wire.ControlEvent{Type: "progress",
+			Message: "warn: DHT routing table still empty; provider lookup may come up empty"})
 	}
 	dhtProviders, err := n.FindProvidersForCommit(ctx, commit, 16)
 	if err != nil {
