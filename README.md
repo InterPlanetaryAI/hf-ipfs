@@ -13,14 +13,14 @@ It embeds the IPFS/libp2p node **inside the binary**. No Kubo, no external
 daemon, no sidecar service.
 
 ```
-        ~/.cache/huggingface/hub/          ┌──────────────────────────┐
+        ~/.cache/huggingface/hub/         ┌──────────────────────────┐
    ┌──────────────────────────────────┐   │  hf-ipfs (one binary)    │
    │ models--org--name/               │   │                          │
    │   blobs/<sha256>   <── the bytes │◄──┤ filestore: (path,offset) │
    │   snapshots/<commit>/file        │   │ kad-dht: dummy CID keys  │
-   │     file -> ../../blobs/<sha256>│   │ /hf-ipfs/map/1.0.0       │
-   └──────────────────────────────────┘   │ /hf-ipfs/block/1.0.0   │
-                                          └───────────┬────────────┘
+   │     file -> ../../blobs/<sha256> │   │ /hf-ipfs/map/1.0.0       │
+   └──────────────────────────────────┘   │ /hf-ipfs/block/1.0.0     │
+                                          └───────────┬──────────────┘
                                                       │ libp2p
                                           ┌───────────┴────────────┐
                                           │ other hf-ipfs peers    │
