@@ -1,0 +1,13 @@
+services:
+  hf-ipfs:
+    build: .
+    image: hf-ipfs:local
+    ports:
+      - "4008:4008" # libp2p swarm (DefaultListenPort)
+    volumes:
+      # Mount the real host dirs at the SAME absolute paths the container's
+      # defaults resolve to (/root/...), so filestore records paths that are
+      # valid on both host and container.
+      - ${HOME}/.hf-ipfs:/root/.hf-ipfs                   # libp2p identity, bbolt DB, control socket
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface # real HF cache (the shared bytes)
+    restart: unless-stopped
