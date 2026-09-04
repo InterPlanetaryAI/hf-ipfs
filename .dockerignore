@@ -1,0 +1,11 @@
+.git
+.github
+.cache
+.hf-ipfs
+.ssh
+.orca-worktree-trash
+.agents
+hf-ipfs
+*.tar.gz
+README.md
+PROMPT.md
