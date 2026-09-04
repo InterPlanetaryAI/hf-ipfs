@@ -1,4 +1,8 @@
 name: Release Please
+
+# Pushes to main open/update a "chore(main): release X.Y.Z" PR. Merging that PR
+# re-runs this workflow, which mints the tag and the GitHub release; `release.yml`
+# then attaches binaries and pushes the versioned container images.
 on:
   push:
     branches: [main]
@@ -13,4 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: googleapis/release-please-action@v4
-        # config lives in release-please-config.json (release-type: go, initial-version: 0.1.0)
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
