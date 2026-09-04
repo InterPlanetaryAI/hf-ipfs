@@ -51,6 +51,15 @@ type ControlRequest struct {
 	Peers    []string `json:"peers,omitempty"`
 	Connect  []string `json:"connect,omitempty"`
 	Force    bool     `json:"force,omitempty"`
+
+	// From is the source spec ("p2p", "hf", "p2p,hf"), already normalised
+	// by pull.ParseSources on the CLI side.
+	From string `json:"from,omitempty"`
+
+	// Token is a per-request HF access token override. Empty means the
+	// daemon uses its own configured token. It travels only over the local
+	// Unix control socket, which is owner-only (0600).
+	Token string `json:"token,omitempty"`
 }
 
 // ControlEvent is a streamed progress/completion event.

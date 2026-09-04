@@ -86,6 +86,13 @@ func Serve(ctx context.Context, n *node.Node, socketPath string) (*Server, error
 	if err != nil {
 		return nil, fmt.Errorf("listen %s: %w", socketPath, err)
 	}
+	// Go creates the socket 0777 & ~umask, which under a normal umask of
+	// 022 leaves it connectable by any local user. Control requests now
+	// carry an HF access token, so this has to be owner-only.
+	if err := os.Chmod(socketPath, 0o600); err != nil {
+		_ = ln.Close()
+		return nil, fmt.Errorf("chmod %s: %w", socketPath, err)
+	}
 	s := &Server{n: n, ln: ln, path: socketPath, Shutdown: make(chan struct{})}
 	go s.acceptLoop(ctx)
 	return s, nil
@@ -134,6 +141,11 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 			ev(wire.ControlEvent{Type: "error", Message: err.Error()})
 			return
 		}
+		src, err := pull.ParseSources(req.From)
+		if err != nil {
+			ev(wire.ControlEvent{Type: "error", Message: "pull: " + err.Error()})
+			return
+		}
 		err = pull.Run(ctx, s.n, pull.Options{
 			RepoID:   req.RepoID,
 			RepoType: t,
@@ -142,6 +154,8 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 			Peers:    req.Peers,
 			Connect:  req.Connect,
 			Force:    req.Force,
+			Sources:  src,
+			Token:    req.Token,
 		}, ev)
 		if err != nil {
 			ev(wire.ControlEvent{Type: "error", Message: err.Error()})
@@ -218,7 +232,14 @@ func probe(socketPath string) bool {
 }
 
 func statusLine(n *node.Node) string {
-	return fmt.Sprintf("peer %s\n%s", n.PeerID, strings.Join(n.Addrs(), "\n"))
+	rt := n.RoutingTableSize()
+	tail := ""
+	if rt == 0 {
+		tail = "\n         (not joined the DHT swarm: providers cannot be announced or resolved)"
+	}
+	return fmt.Sprintf("peer : %s\naddrs:\n  %s\ndht  : routing table %d peer(s)%s\nreach: %s",
+		n.PeerID, strings.Join(n.Addrs(), "\n  "), rt, tail,
+		node.ReachabilityLine(n.Reachability(), n.Cfg))
 }
 
 func short(s string) string {
