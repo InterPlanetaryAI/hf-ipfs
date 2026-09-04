@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync/atomic"
 	"time"
 
 	bserv "github.com/ipfs/boxo/blockservice"
@@ -22,10 +23,12 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	libp2p "github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
+	"github.com/libp2p/go-libp2p/core/event"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
+	manet "github.com/multiformats/go-multiaddr/net"
 	mh "github.com/multiformats/go-multihash"
 
 	"github.com/ipai/hf-ipfs/internal/config"
@@ -55,6 +58,11 @@ type Node struct {
 
 	cidBuilder cid.Builder
 	ctx        context.Context
+
+	reach    atomic.Int32
+	reachSub event.Subscription
+	reachCh  chan network.Reachability
+	isolated bool
 }
 
 // New builds a node over the configured repo, taking the exclusive repo lock.
@@ -81,36 +89,56 @@ func New(ctx context.Context, cfg *config.Config) (*Node, error) {
 		return nil, err
 	}
 
-	h, err := libp2p.New(
+	opts := []libp2p.Option{
 		libp2p.Identity(key),
 		libp2p.ListenAddrStrings(cfg.Listen...),
-	)
+	}
+	if cfg.Relay {
+		opts = append(opts, libp2p.EnableRelay())
+	} else {
+		opts = append(opts, libp2p.DisableRelay())
+	}
+	// AutoNATv2 is what lets us *report* reachability, so it is on
+	// whenever the node expects to meet strangers, independently of
+	// whether relays or punching are enabled.
+	if !cfg.Isolated {
+		opts = append(opts, libp2p.EnableAutoNATv2())
+		if cfg.HolePunch {
+			opts = append(opts, libp2p.EnableHolePunching())
+		}
+		if cfg.NATPortMap {
+			opts = append(opts, libp2p.NATPortMap())
+		}
+	}
+	h, err := libp2p.New(opts...)
 	if err != nil {
 		_ = st.Close()
 		_ = lock.Close()
 		return nil, fmt.Errorf("create libp2p host: %w", err)
 	}
 
-	dhtOpts := []dht.Option{dht.Mode(dht.ModeClient)}
+	mode := dht.ModeClient
 	if cfg.DHTServer {
-		dhtOpts = append(dhtOpts, dht.Mode(dht.ModeServer))
+		mode = dht.ModeServer
 	}
-	if len(cfg.Bootstrap) > 0 {
-		addrs, err := parseAddrs(cfg.Bootstrap)
-		if err != nil {
-			_ = h.Close()
-			_ = st.Close()
-			_ = lock.Close()
-			return nil, err
-		}
-		infos, err := peer.AddrInfosFromP2pAddrs(addrs...)
-		if err != nil {
-			_ = h.Close()
-			_ = st.Close()
-			_ = lock.Close()
-			return nil, fmt.Errorf("parse bootstrap peers: %w", err)
-		}
-		dhtOpts = append(dhtOpts, dht.BootstrapPeers(infos...))
+	dhtOpts := []dht.Option{dht.Mode(mode)}
+
+	booters, err := resolveBootstrap(cfg)
+	if err != nil {
+		_ = h.Close()
+		_ = st.Close()
+		_ = lock.Close()
+		return nil, err
+	}
+	if len(booters) > 0 {
+		dhtOpts = append(dhtOpts, dht.BootstrapPeers(booters...))
+	}
+
+	// Announce only addresses a remote peer could actually dial. Without this
+	// the provider record carries loopback and Docker bridges, and every
+	// transparent pull spends its budget on connections that cannot work.
+	if !cfg.Isolated {
+		dhtOpts = append(dhtOpts, dht.AddressFilter(announceAddrs))
 	}
 
 	dhtInstance, err := dht.New(h, dhtOpts...)
@@ -144,10 +172,55 @@ func New(ctx context.Context, cfg *config.Config) (*Node, error) {
 		Mapping:    mapping.New(st.DS("map")),
 		ctx:        ctx,
 		cidBuilder: cid.V1Builder{Codec: cid.DagProtobuf, MhType: mh.SHA2_256},
+		isolated:   cfg.Isolated,
+		reachCh:    make(chan network.Reachability, 4),
+	}
+
+	// AutoNAT's verdict is the single most useful diagnostic here: the
+	// bound address tells us what we asked for, not what peers can
+	// actually dial.
+	if !cfg.Isolated {
+		sub, err := h.EventBus().Subscribe(&event.EvtLocalReachabilityChanged{})
+		if err != nil {
+			log.Warnf("reachability subscription unavailable: %s", err)
+		} else {
+			n.reachSub = sub
+			go n.trackReachability(sub)
+		}
 	}
 
 	n.registerHandlers()
 	return n, nil
+}
+
+// trackReachability mirrors the AutoNAT verdict onto the node so callers can
+// read it synchronously.
+func (n *Node) trackReachability(sub event.Subscription) {
+	wasPublic := false
+	for evt := range sub.Out() {
+		e, ok := evt.(event.EvtLocalReachabilityChanged)
+		if !ok {
+			continue
+		}
+		n.reach.Store(int32(e.Reachability))
+		log.Infof("reachability: %s", e.Reachability)
+		select {
+		case n.reachCh <- e.Reachability:
+		default:
+		}
+		// The first Public verdict is exactly when the provider record should
+		// be rewritten: it now carries an address strangers can actually use,
+		// and the routing table has had time to fill.
+		if e.Reachability == network.ReachabilityPublic && !wasPublic {
+			wasPublic = true
+			count, err := n.ReprovideAll(n.ctx)
+			if err != nil {
+				log.Warnf("re-announce after public reachability: %s", err)
+			} else if count > 0 {
+				log.Infof("re-announced %d revision(s) after public reachability", count)
+			}
+		}
+	}
 }
 
 // registerHandlers advertises the custom hf-ipfs libp2p protocols.
@@ -166,6 +239,133 @@ func (n *Node) Addrs() []string {
 		out = append(out, fmt.Sprintf("%s/p2p/%s", a, n.PeerID))
 	}
 	return out
+}
+
+// BoundLoopbackOnly reports whether every address this host listens on is a
+// loopback address. A node in that state cannot be dialed by any other peer:
+// the DHT hands out 127.0.0.1, which points back at the puller's own
+// machine, so every transparent pull fails during dialing while the daemon
+// looks perfectly healthy in its own logs.
+//
+// manet has no loopback predicate — IsPublicAddr and IsPrivateAddr both
+// classify loopback as neither — so this goes through net.IP directly.
+func (n *Node) BoundLoopbackOnly() bool { return loopbackOnly(n.Host.Addrs()) }
+
+// loopbackOnly is the predicate behind BoundLoopbackOnly, split out so it can
+// be tested without standing up a libp2p host.
+func loopbackOnly(addrs []ma.Multiaddr) bool {
+	if len(addrs) == 0 {
+		return false
+	}
+	for _, a := range addrs {
+		ip, err := manet.ToIP(a)
+		if err != nil || !ip.IsLoopback() {
+			return false
+		}
+	}
+	return true
+}
+
+// RoutingTableSize reports how many peers the DHT currently knows. Zero means
+// the node has not joined a swarm and cannot announce or resolve providers.
+func (n *Node) RoutingTableSize() int { return n.DHT.RoutingTable().Size() }
+
+// Reachability reports AutoNAT's verdict on whether this node is dialable
+// from the public internet. ReachabilityUnknown means the probe has not
+// completed — or never will, for an isolated node.
+func (n *Node) Reachability() network.Reachability {
+	return network.Reachability(n.reach.Load())
+}
+
+// ReachabilityChanged yields AutoNAT verdicts as they arrive. AutoNAT's
+// first verdict typically lands tens of seconds after startup, so callers
+// that report reachability should watch this rather than blocking on it.
+func (n *Node) ReachabilityChanged() <-chan network.Reachability { return n.reachCh }
+
+// WaitForReachability blocks until AutoNAT reports a definite verdict or the
+// timeout elapses. Isolated nodes return immediately: there is no swarm to
+// probe against, so waiting would just burn the timeout.
+func (n *Node) WaitForReachability(ctx context.Context, timeout time.Duration) network.Reachability {
+	if n.isolated {
+		return network.ReachabilityUnknown
+	}
+	deadline := time.After(timeout)
+	tick := time.NewTicker(200 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if r := n.Reachability(); r != network.ReachabilityUnknown {
+			return r
+		}
+		select {
+		case <-ctx.Done():
+			return n.Reachability()
+		case <-deadline:
+			return n.Reachability()
+		case <-tick.C:
+		}
+	}
+}
+
+// relayed reports whether a stream arrived over a circuit v2 relay. libp2p
+// marks those connections "limited".
+func relayed(s network.Stream) bool { return s.Conn().Stat().Limited }
+
+// announceAddrs keeps only publicly routable addresses for DHT announcements.
+// Loopback, RFC1918 (Docker bridges included), link-local and CGNAT ranges are
+// dropped: advertising them makes every transparent pull burn its dial budget on
+// connections that cannot possibly succeed. A node with no public address at all
+// keeps its local ones — it is still reachable inside its own network, and
+// announcing nothing would hide it from LAN peers too.
+func announceAddrs(addrs []ma.Multiaddr) []ma.Multiaddr {
+	out := make([]ma.Multiaddr, 0, len(addrs))
+	for _, a := range addrs {
+		if manet.IsPublicAddr(a) {
+			out = append(out, a)
+		}
+	}
+	if len(out) == 0 {
+		return addrs
+	}
+	return out
+}
+
+// dialOrder sorts a provider's addresses with publicly routable ones first, so
+// the swarm tries the address that can work before loopback. Non-public
+// addresses stay as a fallback for pullers sharing the provider's network.
+func dialOrder(addrs []ma.Multiaddr) []ma.Multiaddr {
+	pub := make([]ma.Multiaddr, 0, len(addrs))
+	local := make([]ma.Multiaddr, 0, len(addrs))
+	for _, a := range addrs {
+		if manet.IsPublicAddr(a) {
+			pub = append(pub, a)
+		} else {
+			local = append(local, a)
+		}
+	}
+	return append(pub, local...)
+}
+
+// ReachabilityLine renders AutoNAT's verdict as operator-actionable text.
+// The bound address only reports what we asked for; this reports whether the
+// internet agrees we are dialable — exactly the gap that made reachability
+// hard to diagnose before.
+func ReachabilityLine(r network.Reachability, cfg *config.Config) string {
+	if cfg.Isolated {
+		return "n/a (isolated node: no swarm to probe against)"
+	}
+	switch r {
+	case network.ReachabilityPublic:
+		return "public — dialable by strangers"
+	case network.ReachabilityPrivate:
+		hint := "NAT-PMP/UPnP did not map the port; port it forward on the gateway"
+		if !cfg.NATPortMap {
+			hint = "port mapping is off; drop --no-nat-portmap or port-forward manually"
+		}
+		return "private — NOT dialable by strangers; " + hint +
+			" (hole punching still works for peers that can reach us at all)"
+	default:
+		return "probing (AutoNAT)…"
+	}
 }
 
 // Dial connects to a peer given a full /p2p multiaddr.
@@ -280,6 +480,9 @@ func (n *Node) FindProvidersForCommit(ctx context.Context, commit string, limit 
 		if p.ID == n.PeerID {
 			continue
 		}
+		// A record may mix a routable address with loopback and Docker
+		// bridges; the swarm tries them in the order given.
+		p.Addrs = dialOrder(p.Addrs)
 		log.Debugf("find providers: %s", p)
 		out = append(out, p)
 	}
@@ -314,6 +517,23 @@ func (n *Node) handleMap(s network.Stream) {
 		return
 	}
 
+	// Answering the map query is what authorises the bulk transfer that
+	// follows, so this is the right place to refuse: the puller gets a readable
+	// error and moves on to another candidate instead of silently trickling
+	// a model through somebody's relay.
+	if relayed(s) && !n.Cfg.RelayBulk {
+		log.Warnw("refusing map for relayed peer: bulk-over-relay disabled",
+			"peer", s.Conn().RemotePeer(), "commit", req.CommitHash)
+		resp := wire.MapResponse{
+			CommitHash: req.CommitHash,
+			Error: "peer will not stream bulk data over a circuit relay; it needs a " +
+				"publicly reachable address, or the puller must pass --relay-bulk",
+		}
+		_ = s.SetWriteDeadline(time.Now().Add(30 * time.Second))
+		_ = protoio.WriteJSON(s, &resp)
+		return
+	}
+
 	resp := wire.MapResponse{CommitHash: req.CommitHash}
 	entry, ok, err := n.Mapping.Get(n.ctx, req.CommitHash)
 	switch {
@@ -345,6 +565,15 @@ func (n *Node) handleMap(s network.Stream) {
 // stream keeps order, a client can pipeline batches without request ids.
 func (n *Node) handleBlocks(s network.Stream) {
 	defer s.Close()
+
+	// Defence in depth: the map gate above should stop relayed pullers
+	// before they get here, but never stream gigabytes over a relay that
+	// the operator did not opt into.
+	if relayed(s) && !n.Cfg.RelayBulk {
+		log.Warnw("refusing bulk stream over circuit relay", "peer", s.Conn().RemotePeer())
+		_ = s.Reset()
+		return
+	}
 
 	for {
 		var req struct {
@@ -410,9 +639,29 @@ func parseAddrs(strs []string) ([]ma.Multiaddr, error) {
 	return out, nil
 }
 
+// resolveBootstrap decides which Kademlia bootstrap peers the node starts from.
+// An explicit --bootstrap list wins; --isolated means none; otherwise the
+// canonical libp2p bootstrappers are used so the node joins the public swarm.
+func resolveBootstrap(cfg *config.Config) ([]peer.AddrInfo, error) {
+	if cfg.Isolated {
+		return nil, nil
+	}
+	if len(cfg.Bootstrap) == 0 {
+		return dht.GetDefaultBootstrapPeerAddrInfos(), nil
+	}
+	addrs, err := parseAddrs(cfg.Bootstrap)
+	if err != nil {
+		return nil, err
+	}
+	return peer.AddrInfosFromP2pAddrs(addrs...)
+}
+
 // Close releases every resource owned by the node.
 func (n *Node) Close() error {
 	var errs []error
+	if n.reachSub != nil {
+		errs = append(errs, n.reachSub.Close())
+	}
 	if n.DHT != nil {
 		errs = append(errs, n.DHT.Close())
 	}
