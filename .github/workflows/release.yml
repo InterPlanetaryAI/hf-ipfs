@@ -1,0 +1,82 @@
+name: Release
+
+# Everything that happens once a release PR is merged. release-please has already
+# created the tag vX.Y.Z and the GitHub release by then; this workflow only
+# fills it out with binaries and container images.
+on:
+  release:
+    types: [published]
+
+jobs:
+  binaries:
+    name: Binaries (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          go build -trimpath -ldflags "-s -w -X main.version=$ver" -o hf-ipfs .
+          tar czf "hf-ipfs-$ver-$GOOS-$GOARCH.tar.gz" hf-ipfs
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" hf-ipfs-*.tar.gz
+
+  docker:
+    name: Container images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # GHCR image names must be lowercase; the owning org is not.
+      - name: Image name
+        id: img
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.img.outputs.name }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=release
+          cache-to: type=gha,mode=max,scope=release
