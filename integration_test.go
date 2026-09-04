@@ -85,6 +85,7 @@ func nodeConfig(repo, hub string, dhtServer bool) *config.Config {
 		Listen:         []string{"/ip4/127.0.0.1/tcp/0"},
 		ChunkSize:      1 << 20,
 		DHTServer:      dhtServer,
+		Isolated:       true, // never reach for the public swarm from a test
 		HFEndpoint:     "https://huggingface.co",
 		APISocket:      filepath.Join(repo, "api.sock"),
 		RescanInterval: 0,

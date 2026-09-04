@@ -26,6 +26,13 @@ const (
 
 	// MaxFrameSize bounds a single length-prefixed frame on any stream.
 	MaxFrameSize = 8 << 20
+
+	// DefaultListenPort is the fixed libp2p TCP port the daemon binds by
+	// default. A stable port is a precondition for port-forwarding: an
+	// ephemeral port cannot be forwarded, so `tcp/0` silently disqualifies
+	// a node from being dialable by strangers. 4008 is chosen to avoid
+	// colliding with Kubo's 4001.
+	DefaultListenPort = 4008
 )
 
 // Config holds every tunable of a hf-ipfs node.
@@ -42,12 +49,35 @@ type Config struct {
 	// Listen are the libp2p listen multiaddrs.
 	Listen []string
 
-	// Bootstrap are Kademlia bootstrap peer multiaddrs. Empty means the node
-	// runs on an isolated DHT (useful for local two-node testing).
+	// Bootstrap are Kademlia bootstrap peer multiaddrs. When empty and
+	// Isolated is false, the canonical libp2p bootstrap list is used.
 	Bootstrap []string
+
+	// Isolated runs the node on a private DHT with no bootstrap peers, so
+	// two local nodes can be tested without touching the public swarm.
+	Isolated bool
 
 	// Connect are peers to dial right after startup.
 	Connect []string
+
+	// HolePunch enables DCUtR, letting two private nodes form a direct
+	// connection by punching simultaneous holes.
+	HolePunch bool
+
+	// Relay enables circuit v2 dialing and listening. It is the only way a
+	// fully private node can be reached at all, but it also means traffic
+	// may transit a third-party relay.
+	Relay bool
+
+	// NATPortMap asks the local gateway for a UPnP/NAT-PMP mapping, which
+	// makes a NAT'd node dialable without manual configuration.
+	NATPortMap bool
+
+	// RelayBulk permits bulk block streaming over circuit-relayed
+	// (limited) connections. Off by default: a relay carrying a 40 GiB
+	// safetensors shard is somebody else's bandwidth bill. Hole-punched
+	// and direct connections are unaffected.
+	RelayBulk bool
 
 	// ChunkSize is the fixed chunk size used when ingesting blobs.
 	ChunkSize int64
@@ -58,6 +88,15 @@ type Config struct {
 
 	// HFEndpoint is the Hugging Face Hub API base URL.
 	HFEndpoint string
+
+	// HFToken authenticates Hub API and file-download requests, which is
+	// what unlocks gated and private repos. Resolved from HF_TOKEN, then
+	// the legacy HUGGING_FACE_HUB_TOKEN, and overridable per invocation
+	// with --hf-token.
+	//
+	// It is a secret: never log it, never place it in a URL, and never let
+	// it reach an error message.
+	HFToken string
 
 	// APISocket is the local Unix socket the daemon serves control on.
 	APISocket string
@@ -82,13 +121,23 @@ func Default() (*Config, error) {
 
 	endpoint := strings.TrimRight(firstNonEmpty(os.Getenv("HF_ENDPOINT"), "https://huggingface.co"), "/")
 
+	// HF_TOKEN is current; HUGGING_FACE_HUB_TOKEN is the older name still
+	// set by a lot of existing tooling, so it is honoured as a fallback.
+	token := firstNonEmpty(os.Getenv("HF_TOKEN"), os.Getenv("HUGGING_FACE_HUB_TOKEN"))
+
 	return &Config{
-		RepoDir:        repo,
-		HFHubDir:       hub,
-		Listen:         []string{"/ip4/0.0.0.0/tcp/0"},
-		ChunkSize:      DefaultChunkSize,
-		DHTServer:      true,
+		RepoDir:    repo,
+		HFHubDir:   hub,
+		Listen:     []string{fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", DefaultListenPort)},
+		ChunkSize:  DefaultChunkSize,
+		DHTServer:  true,
+		HolePunch:  true,
+		Relay:      true,
+		NATPortMap: true,
+		// Bulk over relay stays off; see the field comment.
+		RelayBulk:      false,
 		HFEndpoint:     endpoint,
+		HFToken:        strings.TrimSpace(token),
 		APISocket:      filepath.Join(repo, "api.sock"),
 		RescanInterval: 5 * time.Minute,
 	}, nil
