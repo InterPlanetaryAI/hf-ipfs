@@ -4,3 +4,7 @@
 
 # Test scratch space
 /tmp/
+
+# Local HF cache and daemon runtime state created by manual runs
+/.cache/
+/.hf-ipfs/
