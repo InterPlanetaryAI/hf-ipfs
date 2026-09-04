@@ -53,6 +53,23 @@ go build -o hf-ipfs .
 ./hf-ipfs version
 ```
 
+## Docker
+
+A static multi-stage image (alpine, no runtime deps) is published to GHCR on
+every `main` push and release tag, and `docker-compose.yml` runs a seeding
+daemon against your real HF cache:
+
+```bash
+docker compose up -d
+docker compose logs -f   # peer id, swarm size, reachability verdict
+```
+
+The critical constraint is that the container must see `~/.hf-ipfs` and
+`~/.cache/huggingface` at the **same absolute paths** the filestore
+recorded — compose handles this; see [DOCKER.md](DOCKER.md) for the full
+guide: plain `docker run`, running CLI commands against the containerized
+daemon, tokens, port-forwarding for dialability, and troubleshooting.
+
 ## Quick start (two nodes, one laptop)
 
 ```bash
