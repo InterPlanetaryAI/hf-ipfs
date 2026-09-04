@@ -27,6 +27,17 @@ type FileManifest struct {
 	Mode     uint32 `json:"mode,omitempty"`
 	Mtime    int64  `json:"mtime,omitempty"`
 
+	// LFS marks a Git-LFS (or Xet) backed file. Only those files carry
+	// lfs_sha256/lfs_size in trees/<commit>.json; a plain git blob is
+	// recorded with just size and blob_id. We SHA-256 every file we touch,
+	// so the content hash alone cannot make this determination.
+	LFS bool `json:"lfs,omitempty"`
+
+	// XetHash is the Xet content hash for Xet-stored files, empty otherwise.
+	// Carried in the manifest so a seeder can hand it to pullers, which
+	// would otherwise have to hit the Hub API for it.
+	XetHash string `json:"xet_hash,omitempty"`
+
 	// SrcPath is the absolute path of the bytes on the sharing host. It is
 	// used during ingest and deliberately not transmitted.
 	SrcPath string `json:"-"`
