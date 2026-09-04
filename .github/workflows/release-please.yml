@@ -12,5 +12,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: googleapis/release-please-action@v4
-        with:
-          release-type: go
+        # config lives in release-please-config.json (release-type: go, initial-version: 0.1.0)
