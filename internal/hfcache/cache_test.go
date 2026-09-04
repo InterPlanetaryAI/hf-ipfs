@@ -115,6 +115,81 @@ func TestReadSnapshotSortedAndStable(t *testing.T) {
 	}
 }
 
+// A bare ".git" prefix match used to swallow .gitattributes, so the file
+// never entered the ingest DAG and no p2p puller ever received it — a
+// silently incomplete share. Only the *contents* of .git/ and .cache/ are
+// plumbing; a dotfile at any other level is real repo content.
+func TestReadSnapshotKeepsDotfilesSkipsBookkeeping(t *testing.T) {
+	hub := t.TempDir()
+	p := NewPaths(hub, "testorg/testmodel", Model)
+	if err := os.MkdirAll(p.Blobs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	snap := p.SnapshotDir(testCommit)
+
+	keep := []string{".gitattributes", ".gitignore", ".hidden.json", "normal.json", "sub/.keep"}
+	skip := []string{".git/config", ".git/HEAD", ".cache/hashes/abc", ".cache/huggingface/meta", "sub/.git/x"}
+
+	link := func(rel string) {
+		name := writeBlob(t, p.Blobs, "content-of:"+rel)
+		full := filepath.Join(snap, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		target, err := filepath.Rel(filepath.Dir(full), filepath.Join(p.Blobs, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, full); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, rel := range keep {
+		link(rel)
+	}
+	for _, rel := range skip {
+		link(rel)
+	}
+
+	files, err := ReadSnapshot(p, testCommit)
+	if err != nil {
+		t.Fatalf("ReadSnapshot: %v", err)
+	}
+	got := map[string]bool{}
+	for _, f := range files {
+		got[f.Path] = true
+	}
+	for _, rel := range keep {
+		if !got[rel] {
+			t.Errorf("%s was dropped; dotfiles are real repo content", rel)
+		}
+	}
+	for _, rel := range skip {
+		if got[rel] {
+			t.Errorf("%s should be skipped (inside a bookkeeping dir)", rel)
+		}
+	}
+}
+
+func TestIsInsideBookkeeping(t *testing.T) {
+	inside := []string{".git", ".git/config", ".cache", ".cache/hashes/x"}
+	outside := []string{
+		".gitattributes", ".gitignore", ".gitkeep",
+		".github/workflows/ci.yml", ".gitlab-ci.yml",
+		"git/x", ".cache.txt", "normal.json",
+	}
+	for _, s := range inside {
+		if !isInsideBookkeeping(s) {
+			t.Errorf("%q should be inside bookkeeping", s)
+		}
+	}
+	for _, s := range outside {
+		if isInsideBookkeeping(s) {
+			t.Errorf("%q should NOT be inside bookkeeping", s)
+		}
+	}
+}
+
 func TestSnapshotComplete(t *testing.T) {
 	hub := t.TempDir()
 	names := buildHub(t, hub)

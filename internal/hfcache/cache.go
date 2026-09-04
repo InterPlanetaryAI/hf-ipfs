@@ -93,6 +93,7 @@ type Paths struct {
 	Blobs     string
 	Snapshots string
 	Refs      string
+	Trees     string
 }
 
 // RepoFromDirName maps a `hub/` directory name back to (repo id, type).
@@ -117,6 +118,7 @@ func NewPaths(hubDir, repoID string, t RepoType) Paths {
 		Blobs:     filepath.Join(repoDir, "blobs"),
 		Snapshots: filepath.Join(repoDir, "snapshots"),
 		Refs:      filepath.Join(repoDir, "refs"),
+		Trees:     filepath.Join(repoDir, "trees"),
 	}
 }
 
@@ -221,7 +223,13 @@ func ReadSnapshot(p Paths, commit string) ([]mapping.FileManifest, error) {
 		if err != nil {
 			return err
 		}
-		if strings.HasPrefix(rel, ".cache") || strings.HasPrefix(rel, ".git") {
+		rel = filepath.ToSlash(rel)
+		// Skip only what lives *inside* VCS/hub bookkeeping directories.
+		// Matching a bare ".git" prefix here also swallowed .gitattributes
+		// (and would swallow .gitignore, .github/, …), which made every p2p
+		// pull silently incomplete: the file never entered the ingest DAG,
+		// so no puller ever received it or its blob.
+		if isInsideBookkeeping(rel) {
 			return nil
 		}
 
@@ -257,7 +265,7 @@ func ReadSnapshot(p Paths, commit string) ([]mapping.FileManifest, error) {
 		}
 
 		files = append(files, mapping.FileManifest{
-			Path:     filepath.ToSlash(rel),
+			Path:     rel,
 			BlobName: blobName,
 			Size:     info.Size(),
 			SHA256:   digest,
@@ -355,6 +363,11 @@ func WriteSnapshot(p Paths, commit string, files []mapping.FileManifest, ref str
 			return fmt.Errorf("symlink %s: %w", f.Path, err)
 		}
 	}
+	// The tree is part of a complete cache: the `hf` CLI expects
+	// trees/<commit>.json alongside the symlink tree.
+	if err := WriteTree(p, commit, files); err != nil {
+		return err
+	}
 	return WriteRef(p, ref, commit)
 }
 
@@ -377,6 +390,22 @@ func under(root, path string) bool {
 		return false
 	}
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
+// bookkeepingDirs hold a snapshot's plumbing rather than its content: .git
+// is VCS internals, .cache is the hub's in-flight download state.
+var bookkeepingDirs = []string{".git", ".cache"}
+
+// isInsideBookkeeping reports whether a slash-separated relative path lies
+// inside one of bookkeepingDirs — as opposed to merely starting with the
+// same letters, which is the distinction that used to eat .gitattributes.
+func isInsideBookkeeping(rel string) bool {
+	for _, d := range bookkeepingDirs {
+		if rel == d || strings.HasPrefix(rel, d+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func hashFile(path string, size int64) (string, error) {
