@@ -40,7 +40,9 @@ import (
 	"github.com/ipai/hf-ipfs/internal/wire"
 )
 
-var version = "0.1.0" // overridden at release time via -ldflags -X main.version
+// x-release-please-start-version
+var version = "0.1.0" // release-please bumps this; -ldflags -X main.version overrides it
+// x-release-please-end
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
