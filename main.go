@@ -130,6 +130,7 @@ type commonFlags struct {
 	repo     string
 	hfHub    string
 	endpoint string
+	hfToken  string
 	logLevel string
 }
 
@@ -137,6 +138,8 @@ func (c *commonFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&c.repo, "repo", "", "hf-ipfs state dir (default $HF_IPFS_REPO or ~/.hf-ipfs)")
 	fs.StringVar(&c.hfHub, "hf-hub", "", "HF hub cache dir (default $HF_HUB_CACHE or $HF_HOME/hub)")
 	fs.StringVar(&c.endpoint, "endpoint", "", "HF Hub API endpoint (default $HF_ENDPOINT)")
+	fs.StringVar(&c.hfToken, "hf-token", "",
+		"HF access token for gated/private repos (default $HF_TOKEN). Prefer the env var: argv is world-readable via ps")
 	fs.StringVar(&c.logLevel, "log-level", "info", "debug|info|warn|error")
 }
 
@@ -150,6 +153,9 @@ func (c *commonFlags) apply(cfg *config.Config) error {
 	}
 	if c.endpoint != "" {
 		cfg.HFEndpoint = strings.TrimRight(c.endpoint, "/")
+	}
+	if c.hfToken != "" {
+		cfg.HFToken = c.hfToken
 	}
 	level := c.logLevel
 	if level == "" {
@@ -175,15 +181,24 @@ func cmdDaemon(args []string) error {
 	c.register(fs)
 	var listen, bootstrap, connect stringList
 	var chunkSize int64
-	var noWatch, dhtClient bool
+	var noWatch, dhtClient, isolated bool
+	var noRelay, noNatPortMap, noHolePunch, relayBulk bool
 	var rescan time.Duration
 
 	fs.Var(&listen, "listen", "libp2p listen multiaddr (repeatable)")
-	fs.Var(&bootstrap, "bootstrap", "kademlia bootstrap peer multiaddr (repeatable)")
+	fs.Var(&bootstrap, "bootstrap", "kademlia bootstrap peer multiaddr (repeatable; replaces the default list)")
 	fs.Var(&connect, "connect", "peer multiaddr to dial at startup (repeatable)")
 	fs.Int64Var(&chunkSize, "chunk-size", config.DefaultChunkSize, "chunk size in bytes")
 	fs.BoolVar(&noWatch, "no-watch", false, "disable the HF cache file watcher")
 	fs.BoolVar(&dhtClient, "dht-client", false, "run Kademlia in client mode")
+	fs.BoolVar(&isolated, "isolated", false, "private DHT with no bootstrap peers (local testing only)")
+	fs.BoolVar(&noRelay, "no-relay", false,
+		"disable circuit v2; private nodes then have no fallback and become unreachable")
+	fs.BoolVar(&noNatPortMap, "no-nat-portmap", false,
+		"do not request a UPnP/NAT-PMP mapping from the gateway")
+	fs.BoolVar(&noHolePunch, "no-hole-punch", false, "disable DCUtR hole punching")
+	fs.BoolVar(&relayBulk, "relay-bulk", false,
+		"allow bulk block streaming over circuit relays (costs the relay operator bandwidth)")
 	fs.DurationVar(&rescan, "rescan", 5*time.Minute, "periodic cache rescan interval (0 disables)")
 
 	if err := fs.Parse(splitArgs(fs, args)); err != nil {
@@ -205,6 +220,11 @@ func cmdDaemon(args []string) error {
 	}
 	cfg.ChunkSize = chunkSize
 	cfg.DHTServer = !dhtClient
+	cfg.Isolated = isolated
+	cfg.Relay = !noRelay
+	cfg.NATPortMap = !noNatPortMap
+	cfg.HolePunch = !noHolePunch
+	cfg.RelayBulk = relayBulk
 	cfg.RescanInterval = rescan
 	if err := c.apply(cfg); err != nil {
 		return err
@@ -224,12 +244,56 @@ func cmdDaemon(args []string) error {
 	for _, a := range n.Addrs() {
 		fmt.Printf("  addr    : %s\n", a)
 	}
+	if cfg.DHTServer && n.BoundLoopbackOnly() {
+		fmt.Fprintln(os.Stderr,
+			"  warn    : bound to loopback only — no other peer can dial this node.\n"+
+				"            The DHT will hand out 127.0.0.1, so every transparent pull fails.\n"+
+				"            Drop the --listen override to get the default /ip4/0.0.0.0/tcp/4008.")
+	}
 	fmt.Printf("  hub     : %s\n", cfg.HFHubDir)
 	fmt.Printf("  repo    : %s\n", cfg.RepoDir)
-	fmt.Printf("  dht     : server=%t bootstrap=%d\n", cfg.DHTServer, len(cfg.Bootstrap))
+	fmt.Printf("  hf      : endpoint=%s token=%s\n", cfg.HFEndpoint, tokenStatus(cfg.HFToken))
+	bootDesc := "libp2p defaults"
+	switch {
+	case cfg.Isolated:
+		bootDesc = "isolated (none)"
+	case len(cfg.Bootstrap) > 0:
+		bootDesc = fmt.Sprintf("%d custom", len(cfg.Bootstrap))
+	}
+	fmt.Printf("  dht     : server=%t bootstrap=%s\n", cfg.DHTServer, bootDesc)
+	fmt.Printf("  nat     : portmap=%s relay=%s holepunch=%s bulk-over-relay=%s\n",
+		onOff(cfg.NATPortMap && !cfg.Isolated), onOff(cfg.Relay),
+		onOff(cfg.HolePunch && !cfg.Isolated), onOff(cfg.RelayBulk))
 
 	n.DialPeers(ctx)
-	if count, err := n.ReprovideAll(ctx); err != nil {
+
+	// The DHT absorbs dialed peers asynchronously, so announcing before that
+	// lands silently no-ops against an empty routing table.
+	rt := n.WaitForRoutingTable(ctx, 15*time.Second)
+	fmt.Printf("  swarm   : routing table %d peer(s)\n", rt)
+	if rt == 0 && !cfg.Isolated {
+		fmt.Fprintln(os.Stderr,
+			"  warn    : not joined the DHT swarm; provider records cannot be announced or resolved")
+	}
+
+	// AutoNAT's first verdict typically lands well after startup, so the
+	// banner shows the current state and a watcher prints the real verdict
+	// the moment it arrives. Blocking the banner on the probe just made the
+	// startup line wrong for tens of seconds.
+	fmt.Printf("  reach   : %s\n", node.ReachabilityLine(n.Reachability(), cfg))
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case r := <-n.ReachabilityChanged():
+				fmt.Printf("  reach   : %s\n", node.ReachabilityLine(r, cfg))
+			}
+		}
+	}()
+
+	count, err := n.ReprovideAll(ctx)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "  warn    : reprovide failed: %v\n", err)
 	} else if count > 0 {
 		fmt.Printf("  shared  : re-announced %d revision(s)\n", count)
@@ -271,6 +335,7 @@ func cmdPull(args []string) error {
 	var peers, connect stringList
 	var commit, ref, repoType string
 	var force, noDaemon bool
+	var from string
 
 	fs.StringVar(&commit, "commit", "", "explicit 40-char HF commit hash (skips HF API resolution)")
 	fs.StringVar(&ref, "ref", "main", "hf ref to point at the pulled commit")
@@ -279,6 +344,8 @@ func cmdPull(args []string) error {
 	fs.Var(&connect, "connect", "peer multiaddr dialed only to join the DHT (repeatable)")
 	fs.BoolVar(&force, "force", false, "re-pull even if already shared locally")
 	fs.BoolVar(&noDaemon, "no-daemon", false, "never proxy to a running daemon")
+	fs.StringVar(&from, "from", "p2p,hf",
+		"source preference: p2p (swarm only), hf (Hugging Face only), or p2p,hf (swarm first, HF fallback)")
 
 	if err := fs.Parse(splitArgs(fs, args)); err != nil {
 		return err
@@ -296,6 +363,11 @@ func cmdPull(args []string) error {
 		return err
 	}
 
+	src, err := pull.ParseSources(from)
+	if err != nil {
+		return fmt.Errorf("--from: %w", err)
+	}
+
 	req := wire.ControlRequest{
 		Cmd:      wire.CmdPull,
 		RepoID:   repoID,
@@ -305,6 +377,8 @@ func cmdPull(args []string) error {
 		Peers:    peers,
 		Connect:  connect,
 		Force:    force,
+		From:     src.String(),
+		Token:    cfg.HFToken,
 	}
 	if !noDaemon && controls.Alive(cfg.APISocket) {
 		fmt.Fprintf(os.Stderr, "proxying to daemon at %s\n", cfg.APISocket)
@@ -335,6 +409,8 @@ func cmdPull(args []string) error {
 		Peers:    peers,
 		Connect:  connect,
 		Force:    force,
+		Sources:  src,
+		Token:    cfg.HFToken,
 	}, printEvent)
 }
 
@@ -518,7 +594,9 @@ func cmdResolve(args []string) error {
 	ctx, stop := signalContext()
 	defer stop()
 
-	info, err := hfapi.NewClient(cfg.HFEndpoint).RepoInfo(ctx, fs.Arg(0), t, true)
+	client := hfapi.NewClient(cfg.HFEndpoint)
+	client.Token = cfg.HFToken
+	info, err := client.RepoInfo(ctx, fs.Arg(0), t, true)
 	if err != nil {
 		return err
 	}
@@ -580,6 +658,26 @@ func signalContext() (context.Context, func()) {
 		}
 	}()
 	return ctx, cancel
+}
+
+func onOff(b bool) string {
+	if b {
+		return "on"
+	}
+	return "off"
+}
+
+// tokenStatus reports whether an HF token is configured without revealing it.
+// Only the last four characters are shown, which is enough to tell one token
+// from another and not enough to use one.
+func tokenStatus(tok string) string {
+	if tok == "" {
+		return "unset"
+	}
+	if len(tok) <= 4 {
+		return "set"
+	}
+	return "set (…" + tok[len(tok)-4:] + ")"
 }
 
 func short(s string) string {
