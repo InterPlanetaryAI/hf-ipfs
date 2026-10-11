@@ -9,7 +9,7 @@
 //	hf-ipfs daemon [--listen <ma>] [--bootstrap <ma>] [--connect <ma>]
 //	               [--chunk-size N] [--no-watch] [--dht-client] [--rescan DUR]
 //	hf-ipfs pull <repo_id> [--commit <hash>] [--ref main] [--repo-type model]
-//	             [--peer <ma>] [--force] [--no-daemon]
+//	             [--peer <ma>] [--force] [--no-daemon] [--no-fork]
 //	hf-ipfs ingest <repo_id> [--commit <hash>] [--ref main] [--repo-type model]
 //	hf-ipfs list | status | id | resolve <repo_id> | shutdown | version
 package main
@@ -20,7 +20,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -30,11 +32,11 @@ import (
 	"github.com/ipai/hf-ipfs/internal/config"
 	"github.com/ipai/hf-ipfs/internal/controls"
 	"github.com/ipai/hf-ipfs/internal/dummy"
+	"github.com/ipai/hf-ipfs/internal/evict"
 	"github.com/ipai/hf-ipfs/internal/hfapi"
 	"github.com/ipai/hf-ipfs/internal/hfcache"
 	"github.com/ipai/hf-ipfs/internal/identity"
 	"github.com/ipai/hf-ipfs/internal/ingest"
-	"github.com/ipai/hf-ipfs/internal/evict"
 	"github.com/ipai/hf-ipfs/internal/node"
 	"github.com/ipai/hf-ipfs/internal/pull"
 	"github.com/ipai/hf-ipfs/internal/watch"
@@ -347,7 +349,7 @@ func cmdPull(args []string) error {
 	c.register(fs)
 	var peers, connect stringList
 	var commit, ref, repoType string
-	var force, noDaemon bool
+	var force, noDaemon, noFork bool
 	var from string
 
 	fs.StringVar(&commit, "commit", "", "explicit 40-char HF commit hash (skips HF API resolution)")
@@ -356,7 +358,10 @@ func cmdPull(args []string) error {
 	fs.Var(&peers, "peer", "peer multiaddr to try before the DHT (repeatable)")
 	fs.Var(&connect, "connect", "peer multiaddr dialed only to join the DHT (repeatable)")
 	fs.BoolVar(&force, "force", false, "re-pull even if already shared locally")
-	fs.BoolVar(&noDaemon, "no-daemon", false, "never proxy to a running daemon")
+	fs.BoolVar(&noDaemon, "no-daemon", false,
+		"never proxy to a running daemon, and never start one (implies --no-fork)")
+	fs.BoolVar(&noFork, "no-fork", false,
+		"do not start a background daemon when none is running")
 	fs.StringVar(&from, "from", "p2p,hf",
 		"source preference: p2p (swarm only), hf (Hugging Face only), or p2p,hf (swarm first, HF fallback)")
 
@@ -393,9 +398,16 @@ func cmdPull(args []string) error {
 		From:     src.String(),
 		Token:    cfg.HFToken,
 	}
-	if !noDaemon && controls.Alive(cfg.APISocket) {
-		fmt.Fprintf(os.Stderr, "proxying to daemon at %s\n", cfg.APISocket)
-		return controls.Call(cfg.APISocket, req, printEvent)
+	if !noDaemon {
+		if !controls.Alive(cfg.APISocket) && !noFork {
+			if err := forkDaemon(cfg, &c); err != nil {
+				fmt.Fprintf(os.Stderr, "hf-ipfs: background daemon did not start (%v); pulling in-process\n", err)
+			}
+		}
+		if controls.Alive(cfg.APISocket) {
+			fmt.Fprintf(os.Stderr, "proxying to daemon at %s\n", cfg.APISocket)
+			return controls.Call(cfg.APISocket, req, printEvent)
+		}
 	}
 
 	ctx, stop := signalContext()
@@ -425,6 +437,81 @@ func cmdPull(args []string) error {
 		Sources:  src,
 		Token:    cfg.HFToken,
 	}, printEvent)
+}
+
+// forkDaemon starts `hf-ipfs daemon` as a detached background process and
+// waits for its control socket to answer. Flags set on the pull are
+// forwarded; the child re-resolves everything else from the same
+// environment. The token travels via the environment, never argv: argv is
+// world-readable through ps.
+func forkDaemon(cfg *config.Config, c *commonFlags) error {
+	if err := cfg.EnsureDirs(); err != nil {
+		return err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	logPath := filepath.Join(cfg.RepoDir, "daemon.log")
+	logf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	defer logf.Close()
+	devnull, err := os.Open(os.DevNull)
+	if err != nil {
+		return err
+	}
+	defer devnull.Close()
+	var args []string
+	args = append(args, "daemon")
+	if c.repo != "" {
+		args = append(args, "--repo", c.repo)
+	}
+	if c.hfHub != "" {
+		args = append(args, "--hf-hub", c.hfHub)
+	}
+	if c.endpoint != "" {
+		args = append(args, "--endpoint", c.endpoint)
+	}
+	if c.logLevel != "" {
+		args = append(args, "--log-level", c.logLevel)
+	}
+
+	cmd := exec.Command(exe, args...)
+	cmd.Env = append(os.Environ(), "HF_TOKEN="+cfg.HFToken)
+	cmd.Stdin = devnull
+	cmd.Stdout = logf
+	cmd.Stderr = logf
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "started background daemon: pid %d, log %s\n", cmd.Process.Pid, logPath)
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+
+	// The daemon serves the control socket only after it has tried to join
+	// the DHT, which can take the full bootstrap wait on a cold start.
+	deadline := time.NewTimer(30 * time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(200 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if controls.Alive(cfg.APISocket) {
+			return nil
+		}
+		select {
+		case err := <-exited:
+			if err == nil {
+				err = errors.New("exited cleanly")
+			}
+			return fmt.Errorf("daemon exited before it was ready: %w (see %s)", err, logPath)
+		case <-tick.C:
+		case <-deadline.C:
+			return fmt.Errorf("daemon did not answer on %s within 30s (see %s)", cfg.APISocket, logPath)
+		}
+	}
 }
 
 func cmdIngest(args []string) error {
@@ -779,6 +866,7 @@ func usage() {
 Commands:
   daemon      Share the local HF cache: watch, ingest (nocopy), announce, serve
   pull        Pull a repo from peers instead of Hugging Face's servers
+              (starts a background daemon if none is running; --no-fork disables)
   ingest      Share one repo revision now (default: what refs/main points at)
   list        Show revisions this node shares
   evict       Remove a repo's shared revision(s): refs, blocks, blobs, mapping
