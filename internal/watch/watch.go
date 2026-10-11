@@ -163,6 +163,11 @@ func (w *Watcher) handle(fw *fsnotify.Watcher, ev fsnotify.Event) {
 	if !ok {
 		return
 	}
+	// Re-attach watches on every event: a repo dir is created before its
+	// refs/ and snapshots/ subdirs exist, so a single add at creation time
+	// would leave the subdirs unwatched forever (and deletions inside them
+	// invisible). addRepoWatches is idempotent via the known map.
+	w.addRepoWatches(fw, repoDir)
 
 	w.mu.Lock()
 	w.pending[repoID] = time.Now()
@@ -258,7 +263,7 @@ func (w *Watcher) trackExistingRepos(fw *fsnotify.Watcher) {
 }
 
 func (w *Watcher) addRepoWatches(fw *fsnotify.Watcher, repoDir string) {
-	for _, sub := range []string{"refs", "snapshots"} {
+	for _, sub := range []string{"", "refs", "snapshots"} {
 		dir := filepath.Join(repoDir, sub)
 		w.mu.Lock()
 		seen := w.known[dir]
