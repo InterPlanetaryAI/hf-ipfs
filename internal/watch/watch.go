@@ -18,6 +18,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	logging "github.com/ipfs/go-log/v2"
 
+	"github.com/ipai/hf-ipfs/internal/evict"
 	"github.com/ipai/hf-ipfs/internal/hfcache"
 	"github.com/ipai/hf-ipfs/internal/ingest"
 	"github.com/ipai/hf-ipfs/internal/node"
@@ -102,7 +103,8 @@ func (w *Watcher) Run(ctx context.Context) error {
 	}
 }
 
-// Scan ingests every repo whose current ref is finalized but not yet shared.
+// Scan ingests every repo whose current ref is finalized but not yet shared,
+// and prunes mappings whose repo directory has vanished entirely.
 func (w *Watcher) Scan(ctx context.Context) {
 	repos, err := hfcache.ListRepos(w.n.Cfg.HFHubDir)
 	if err != nil {
@@ -114,6 +116,27 @@ func (w *Watcher) Scan(ctx context.Context) {
 			return
 		}
 		w.tryIngest(ctx, repoID)
+	}
+	w.pruneOrphans(ctx)
+}
+
+// pruneOrphans drops mappings for repos no longer present in the hub cache.
+func (w *Watcher) pruneOrphans(ctx context.Context) {
+	entries, err := w.n.Mapping.List(ctx)
+	if err != nil {
+		return
+	}
+	tgt := evict.FromNode(w.n)
+	for _, e := range entries {
+		t := hfcache.RepoType(e.RepoType)
+		paths := hfcache.NewPaths(w.n.Cfg.HFHubDir, e.RepoID, t)
+		if paths.Exists() && hfcache.SnapshotComplete(paths, e.CommitHash) {
+			continue
+		}
+		log.Infof("pruning %s@%s: cache content missing", e.RepoID, short(e.CommitHash))
+		if err := evict.Commit(ctx, tgt, e, nil); err != nil {
+			log.Warnf("prune %s@%s: %s", e.RepoID, short(e.CommitHash), err)
+		}
 	}
 }
 
@@ -173,7 +196,16 @@ func (w *Watcher) tryIngest(ctx context.Context, repoID string) {
 	if err != nil {
 		return // no ref yet
 	}
-	if ok, err := w.n.Mapping.Has(ctx, commit); err == nil && ok {
+	if entry, ok, err := w.n.Mapping.Get(ctx, commit); err == nil && ok {
+		// Mapped but the bytes are gone: someone deleted them behind our
+		// back. Prune so we stop answering map queries for content we
+		// cannot serve (the lying-provider bug).
+		if !hfcache.SnapshotComplete(paths, commit) {
+			log.Infof("%s@%s bytes vanished — pruning", repoID, short(commit))
+			if err := evict.Commit(ctx, evict.FromNode(w.n), entry, nil); err != nil {
+				log.Warnf("prune %s@%s: %s", repoID, short(commit), err)
+			}
+		}
 		return
 	}
 	if !hfcache.SnapshotComplete(paths, commit) {

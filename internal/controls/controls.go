@@ -16,6 +16,7 @@ import (
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/ipai/hf-ipfs/internal/evict"
 
 	"github.com/ipai/hf-ipfs/internal/hfcache"
 	"github.com/ipai/hf-ipfs/internal/ingest"
@@ -203,6 +204,36 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 		}
 		ev(wire.ControlEvent{Type: "done", Message: fmt.Sprintf("%d shared revision(s)", len(entries))})
 
+
+	case wire.CmdEvict:
+		tgt := evict.FromNode(s.n)
+		if req.Commit != "" {
+			entry, ok, err := s.n.Mapping.Get(ctx, req.Commit)
+			if err != nil || !ok {
+				msg := "unknown commit"
+				if err != nil {
+					msg = err.Error()
+				}
+				ev(wire.ControlEvent{Type: "error", Message: msg})
+				return
+			}
+			if err := evict.Commit(ctx, tgt, entry, func(m string) {
+				ev(wire.ControlEvent{Type: "progress", Message: m})
+			}); err != nil {
+				ev(wire.ControlEvent{Type: "error", Message: err.Error()})
+				return
+			}
+			ev(wire.ControlEvent{Type: "done", Message: fmt.Sprintf("evicted %s@%s", entry.RepoID, short(entry.CommitHash))})
+			return
+		}
+		n, err := evict.Repo(ctx, tgt, req.RepoID, func(m string) {
+			ev(wire.ControlEvent{Type: "progress", Message: m})
+		})
+		if err != nil {
+			ev(wire.ControlEvent{Type: "error", Message: err.Error()})
+			return
+		}
+		ev(wire.ControlEvent{Type: "done", Message: fmt.Sprintf("evicted %d revision(s) of %s", n, req.RepoID)})
 	case wire.CmdShutdown:
 		ev(wire.ControlEvent{Type: "done", Message: "shutting down"})
 		select {
