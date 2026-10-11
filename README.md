@@ -108,6 +108,8 @@ Useful flags: `--commit`, `--ref`, `--repo-type model|dataset|space`,
 `--peer <multiaddr>` (try this peer directly), `--connect <multiaddr>` (dial
 only, to join the DHT), `--bootstrap <multiaddr>` (replace the default
 bootstrappers), `--isolated` (private DHT, no bootstrappers), `--force`,
+`--no-fork` (pull: don't auto-start a daemon when none runs), `--no-daemon`
+(pull: never use a daemon at all, pull in-process),
 `--chunk-size`, `--no-watch`, `--dht-client`, `--rescan <dur>`, `--log-level`,
 and for reachability: `--listen <ma>`, `--no-relay`, `--no-hole-punch`,
 `--no-nat-portmap`, `--relay-bulk`, `--relay-service`, `--static-relay <ma>`.
@@ -396,8 +398,11 @@ across all of them, confirming the DAG is deterministic.
 
 * **Single writer.** bbolt admits one writer process, so the daemon owns the repo
   for its lifetime. `pull`, `ingest`, `list` and `status` transparently proxy to
-  a running daemon over its Unix control socket (`<repo>/api.sock`) and only
-  build their own embedded node when no daemon is listening.
+  a running daemon over its Unix control socket (`<repo>/api.sock`). When none
+  is listening, `pull` starts a daemon in the background (its output goes to
+  `<repo>/daemon.log`) and proxies to it; `--no-fork` disables that and
+  `--no-daemon` skips the daemon entirely, pulling with an in-process node.
+  The other commands build their own embedded node when no daemon is listening.
 * **Custom block transport, not Bitswap.** Blocks are fetched over
   `/hf-ipfs/block/1.0.0` from the peer that already answered the mapping query.
   This keeps the node self-contained and the transfer deterministic; it also means

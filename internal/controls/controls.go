@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipai/hf-ipfs/internal/evict"
+	logging "github.com/ipfs/go-log/v2"
 
 	"github.com/ipai/hf-ipfs/internal/hfcache"
 	"github.com/ipai/hf-ipfs/internal/ingest"
@@ -203,7 +203,6 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 					e.RepoID, short(e.CommitHash), e.ActualCID, humanBytes(e.TotalSize), len(e.Files))})
 		}
 		ev(wire.ControlEvent{Type: "done", Message: fmt.Sprintf("%d shared revision(s)", len(entries))})
-
 
 	case wire.CmdEvict:
 		tgt := evict.FromNode(s.n)

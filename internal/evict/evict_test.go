@@ -8,10 +8,10 @@ import (
 	"testing"
 
 	"github.com/ipfs/boxo/blockstore"
-	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/boxo/filestore"
 	"github.com/ipfs/boxo/filestore/posinfo"
 	u "github.com/ipfs/boxo/ipld/merkledag"
+	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
 	format "github.com/ipfs/go-ipld-format"
 	mh "github.com/multiformats/go-multihash"
