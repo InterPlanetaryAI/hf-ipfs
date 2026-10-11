@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/InterPlanetaryAI/hf-ipfs/compare/v0.4.0...v0.4.1) (2026-10-11)
+
+
+### Bug Fixes
+
+* inbound conn starvation ([#12](https://github.com/InterPlanetaryAI/hf-ipfs/issues/12)) ([d378ad4](https://github.com/InterPlanetaryAI/hf-ipfs/commit/d378ad42e5482e13ea0e8de9134894d2d9b169d0))
+
 ## [0.4.0](https://github.com/InterPlanetaryAI/hf-ipfs/compare/v0.3.0...v0.4.0) (2026-10-11)
 
 
