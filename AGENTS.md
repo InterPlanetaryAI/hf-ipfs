@@ -176,6 +176,20 @@ argv is world-readable through `ps`. The banner masks the value (`token=set (…
   only by the peer that punched it; AutoNAT still reports `Private` and kad-dht
   will not advertise the node as a server peer. It is additive to bootstrap,
   never a substitute for reachability.
+- **Outbound connections must stay bounded.** The DHT dials continuously and
+  nothing else ever closes a healthy-but-useless connection, so an unmanaged node
+  accumulates 150+ outbound conns and walks into go-libp2p's default
+  resource-manager budget — 128 conns base plus 128 per GiB of RAM/8 (observed
+  189 on a 3.8 GiB box). The outbound sub-limit is scaled the same way, so
+  outbound alone can consume the entire system scope; once it does, the
+  *listener* closes each accept before the security negotiation, so strangers see
+  `failed to negotiate security protocol: connection reset`, AutoNAT flips to
+  `Private`, and the node silently stops being pullable while its own banner
+  still looks healthy. The `connmgr` watermarks in `node.New` are the guard, and
+  they only bind while `connHighWater` stays under the rcmgr base budget —
+  `TestConnWatermarksUnderBudget` guards that. The trim loop runs once per
+  silence period (10 s default); the grace period is how long a freshly dialed
+  conn is exempt from pruning.
 - **Fixed listen port 4008**, not `tcp/0`. An ephemeral port cannot be
   port-forwarded, which silently disqualifies a node from being dialable by
   strangers. 4008 avoids Kubo's 4001.
