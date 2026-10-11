@@ -291,7 +291,7 @@ func repoDirOf(hub, path string) string {
 			return ""
 		}
 		if filepath.Dir(parent) == hub {
-			return cur
+			return parent
 		}
 		cur = parent
 	}
