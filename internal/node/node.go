@@ -27,6 +27,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	bconnmgr "github.com/libp2p/go-libp2p/p2p/net/connmgr"
 	ma "github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
 	mh "github.com/multiformats/go-multihash"
@@ -41,6 +42,24 @@ import (
 )
 
 var log = logging.Logger("hf-ipfs")
+
+// Connection budget. The DHT dials continuously and nothing else ever closes a
+// healthy-but-useless connection, so an unmanaged node accumulates 150+ outbound
+// conns and walks into go-libp2p's default resource-manager budget: 128 conns
+// base, +128 per GiB of RAM/8 (observed 189 on a 3.8 GiB box). The outbound
+// sub-limit is scaled the same way, so outbound alone can consume the whole
+// system scope — and once it does, the *listener* closes every accept before
+// the security negotiation, AutoNAT reports Private, and the node silently
+// stops being pullable while its own banner still looks healthy. Trimming idle
+// outbound conns keeps headroom for the inbound peers we exist to serve. The
+// trim loop runs once per silence period (10 s default); connGracePeriod is how
+// long a freshly dialed conn is exempt from pruning, so it bounds how long a
+// boot-time spike can sit on the budget.
+const (
+	connLowWater    = 64
+	connHighWater   = 96
+	connGracePeriod = 90 * time.Second
+)
 
 // Node is the embedded sharing/pulling node.
 type Node struct {
@@ -89,9 +108,16 @@ func New(ctx context.Context, cfg *config.Config) (*Node, error) {
 		return nil, err
 	}
 
+	cm, err := bconnmgr.NewConnManager(connLowWater, connHighWater,
+		bconnmgr.WithGracePeriod(connGracePeriod))
+	if err != nil {
+		return nil, err
+	}
+
 	opts := []libp2p.Option{
 		libp2p.Identity(key),
 		libp2p.ListenAddrStrings(cfg.Listen...),
+		libp2p.ConnectionManager(cm),
 	}
 	if cfg.Relay {
 		opts = append(opts, libp2p.EnableRelay())
