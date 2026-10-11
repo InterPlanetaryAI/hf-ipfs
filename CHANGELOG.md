@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.0](https://github.com/InterPlanetaryAI/hf-ipfs/compare/v0.1.0...v0.2.0) (2026-10-11)
+
+
+### Features
+
+* evict command and watcher prune for removed cache content ([641a1e7](https://github.com/InterPlanetaryAI/hf-ipfs/commit/641a1e7598cbc4a98227b768ed7bf3a6881f2494))
+* model evict ([ce7ce80](https://github.com/InterPlanetaryAI/hf-ipfs/commit/ce7ce807868386e3e431cfe564f0626c900533b0))
+
+
+### Bug Fixes
+
+* prune mappings on wholesale repo-dir deletion via fsnotify path ([8e29ecb](https://github.com/InterPlanetaryAI/hf-ipfs/commit/8e29ecb2d026597db9c554e70ea388f23e4ce549))
+* repoDirOf returned the watched subdir, not the repo dir ([49beaf1](https://github.com/InterPlanetaryAI/hf-ipfs/commit/49beaf1f4cee743ee1d2701ad8a1a9a57e6456fa))
+* watch repo dir and re-attach subdir watches on every event ([db623f4](https://github.com/InterPlanetaryAI/hf-ipfs/commit/db623f43d57a60970bda321021b4fc7f17a70f3b))
+
 ## 0.1.0 (2026-09-04)
 
 
