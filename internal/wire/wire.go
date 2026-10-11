@@ -38,6 +38,7 @@ const (
 	CmdIngest   = "ingest"
 	CmdStatus   = "status"
 	CmdList     = "list"
+	CmdEvict    = "evict"
 	CmdShutdown = "shutdown"
 )
 

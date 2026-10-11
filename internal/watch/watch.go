@@ -18,6 +18,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	logging "github.com/ipfs/go-log/v2"
 
+	"github.com/ipai/hf-ipfs/internal/evict"
 	"github.com/ipai/hf-ipfs/internal/hfcache"
 	"github.com/ipai/hf-ipfs/internal/ingest"
 	"github.com/ipai/hf-ipfs/internal/node"
@@ -102,7 +103,8 @@ func (w *Watcher) Run(ctx context.Context) error {
 	}
 }
 
-// Scan ingests every repo whose current ref is finalized but not yet shared.
+// Scan ingests every repo whose current ref is finalized but not yet shared,
+// and prunes mappings whose repo directory has vanished entirely.
 func (w *Watcher) Scan(ctx context.Context) {
 	repos, err := hfcache.ListRepos(w.n.Cfg.HFHubDir)
 	if err != nil {
@@ -114,6 +116,31 @@ func (w *Watcher) Scan(ctx context.Context) {
 			return
 		}
 		w.tryIngest(ctx, repoID)
+	}
+	w.pruneOrphans(ctx, "")
+}
+
+// pruneOrphans drops mappings whose cache content is missing. An empty
+// repoID filters nothing; otherwise only that repo's entries are considered.
+func (w *Watcher) pruneOrphans(ctx context.Context, repoID string) {
+	entries, err := w.n.Mapping.List(ctx)
+	if err != nil {
+		return
+	}
+	tgt := evict.FromNode(w.n)
+	for _, e := range entries {
+		if repoID != "" && e.RepoID != repoID {
+			continue
+		}
+		t := hfcache.RepoType(e.RepoType)
+		paths := hfcache.NewPaths(w.n.Cfg.HFHubDir, e.RepoID, t)
+		if paths.Exists() && hfcache.SnapshotComplete(paths, e.CommitHash) {
+			continue
+		}
+		log.Infof("pruning %s@%s: cache content missing", e.RepoID, short(e.CommitHash))
+		if err := evict.Commit(ctx, tgt, e, nil); err != nil {
+			log.Warnf("prune %s@%s: %s", e.RepoID, short(e.CommitHash), err)
+		}
 	}
 }
 
@@ -136,6 +163,11 @@ func (w *Watcher) handle(fw *fsnotify.Watcher, ev fsnotify.Event) {
 	if !ok {
 		return
 	}
+	// Re-attach watches on every event: a repo dir is created before its
+	// refs/ and snapshots/ subdirs exist, so a single add at creation time
+	// would leave the subdirs unwatched forever (and deletions inside them
+	// invisible). addRepoWatches is idempotent via the known map.
+	w.addRepoWatches(fw, repoDir)
 
 	w.mu.Lock()
 	w.pending[repoID] = time.Now()
@@ -171,9 +203,21 @@ func (w *Watcher) tryIngest(ctx context.Context, repoID string) {
 
 	commit, err := paths.CurrentCommit("main")
 	if err != nil {
-		return // no ref yet
+		// No ref: either nothing downloaded yet, or the repo directory
+		// was deleted wholesale. Prune any mapping whose bytes are gone.
+		w.pruneOrphans(ctx, repoID)
+		return
 	}
-	if ok, err := w.n.Mapping.Has(ctx, commit); err == nil && ok {
+	if entry, ok, err := w.n.Mapping.Get(ctx, commit); err == nil && ok {
+		// Mapped but the bytes are gone: someone deleted them behind our
+		// back. Prune so we stop answering map queries for content we
+		// cannot serve (the lying-provider bug).
+		if !hfcache.SnapshotComplete(paths, commit) {
+			log.Infof("%s@%s bytes vanished — pruning", repoID, short(commit))
+			if err := evict.Commit(ctx, evict.FromNode(w.n), entry, nil); err != nil {
+				log.Warnf("prune %s@%s: %s", repoID, short(commit), err)
+			}
+		}
 		return
 	}
 	if !hfcache.SnapshotComplete(paths, commit) {
@@ -219,7 +263,7 @@ func (w *Watcher) trackExistingRepos(fw *fsnotify.Watcher) {
 }
 
 func (w *Watcher) addRepoWatches(fw *fsnotify.Watcher, repoDir string) {
-	for _, sub := range []string{"refs", "snapshots"} {
+	for _, sub := range []string{"", "refs", "snapshots"} {
 		dir := filepath.Join(repoDir, sub)
 		w.mu.Lock()
 		seen := w.known[dir]
@@ -252,7 +296,7 @@ func repoDirOf(hub, path string) string {
 			return ""
 		}
 		if filepath.Dir(parent) == hub {
-			return cur
+			return parent
 		}
 		cur = parent
 	}

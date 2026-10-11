@@ -34,6 +34,7 @@ import (
 	"github.com/ipai/hf-ipfs/internal/hfcache"
 	"github.com/ipai/hf-ipfs/internal/identity"
 	"github.com/ipai/hf-ipfs/internal/ingest"
+	"github.com/ipai/hf-ipfs/internal/evict"
 	"github.com/ipai/hf-ipfs/internal/node"
 	"github.com/ipai/hf-ipfs/internal/pull"
 	"github.com/ipai/hf-ipfs/internal/watch"
@@ -66,6 +67,8 @@ func run(args []string) error {
 		return cmdPull(rest)
 	case "ingest":
 		return cmdIngest(rest)
+	case "evict":
+		return cmdEvict(rest)
 	case "list":
 		return cmdList(rest)
 	case "status":
@@ -489,6 +492,66 @@ func cmdIngest(args []string) error {
 	return nil
 }
 
+func cmdEvict(args []string) error {
+	fs := flag.NewFlagSet("evict", flag.ContinueOnError)
+	var c commonFlags
+	c.register(fs)
+	var commit string
+	fs.StringVar(&commit, "commit", "", "evict only this commit (default: every mapped revision of the repo)")
+	if err := fs.Parse(splitArgs(fs, args)); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		return errors.New("usage: hf-ipfs evict <repo_id> [--commit <hash>]")
+	}
+	repoID := fs.Arg(0)
+
+	cfg, err := config.Default()
+	if err != nil {
+		return err
+	}
+	if err := c.apply(cfg); err != nil {
+		return err
+	}
+	req := wire.ControlRequest{Cmd: wire.CmdEvict, RepoID: repoID, Commit: commit}
+	if controls.Alive(cfg.APISocket) {
+		return controls.Call(cfg.APISocket, req, printEvent)
+	}
+
+	ctx, stop := signalContext()
+	defer stop()
+	cfg.DHTServer = false
+	n, err := node.New(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer n.Close()
+
+	tgt := evict.FromNode(n)
+	if commit != "" {
+		entry, ok, err := n.Mapping.Get(ctx, commit)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("commit %s is not shared by this node", short(commit))
+		}
+		if err := evict.Commit(ctx, tgt, entry, nil); err != nil {
+			return err
+		}
+		fmt.Printf("evicted %s@%s\n", entry.RepoID, short(entry.CommitHash))
+		return nil
+	}
+	count, err := evict.Repo(ctx, tgt, repoID, func(m string) {
+		fmt.Fprintf(os.Stderr, "  %s\n", m)
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("evicted %d revision(s) of %s\n", count, repoID)
+	return nil
+}
+
 func cmdList(args []string) error {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
 	var c commonFlags
@@ -718,6 +781,7 @@ Commands:
   pull        Pull a repo from peers instead of Hugging Face's servers
   ingest      Share one repo revision now (default: what refs/main points at)
   list        Show revisions this node shares
+  evict       Remove a repo's shared revision(s): refs, blocks, blobs, mapping
   status      Show daemon state and this node's addresses
   id          Print this node's persistent peer id
   resolve     Print a repo's latest commit and its dummy CID
