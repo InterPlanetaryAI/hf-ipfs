@@ -15,8 +15,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 
 	bserv "github.com/ipfs/boxo/blockservice"
@@ -30,6 +32,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	swarm "github.com/libp2p/go-libp2p/p2p/net/swarm"
 
 	"github.com/ipai/hf-ipfs/internal/config"
 	"github.com/ipai/hf-ipfs/internal/hfcache"
@@ -244,7 +247,7 @@ func pullFromPeers(
 // mapExchange performs step C: ask a peer which actual CID backs this commit.
 func mapExchange(ctx context.Context, n *node.Node, p peer.AddrInfo, repoID, commit string) (cid.Cid, *wire.MapResponse, error) {
 	if err := n.Host.Connect(ctx, p); err != nil {
-		return cid.Undef, nil, fmt.Errorf("connect: %w", err)
+		return cid.Undef, nil, fmt.Errorf("connect: %w%s", err, dialHint(err))
 	}
 	s, err := n.Host.NewStream(ctx, p.ID, config.ProtocolMapID)
 	if err != nil {
@@ -268,6 +271,34 @@ func mapExchange(ctx context.Context, n *node.Node, p peer.AddrInfo, repoID, com
 		return cid.Undef, nil, fmt.Errorf("peer sent unusable actual cid %q: %w", resp.ActualCID, err)
 	}
 	return actual, &resp, nil
+}
+
+// dialHint names the address that failed and what the failure means. libp2p
+// stops at "all dials failed". The distinction that matters for a provider is
+// between "nothing is reachable at that address" and "the peer accepted the
+// connection and tore it down mid-handshake". The second is what a provider
+// looks like when its own connection budget is exhausted — it can dial out but
+// refuses strangers — and also what a published port with no live backend
+// behind it looks like, so name both and let the operator decide.
+func dialHint(err error) string {
+	var de *swarm.DialError
+	if !errors.As(err, &de) {
+		return ""
+	}
+	for i := range de.DialErrors {
+		te := &de.DialErrors[i]
+		switch {
+		case errors.Is(te, io.EOF), errors.Is(te, network.ErrReset), errors.Is(te, syscall.ECONNRESET):
+			return fmt.Sprintf(" (%s: TCP connected but the peer closed the handshake — "+
+				"either nothing libp2p is behind that port, or the peer is refusing new "+
+				"connections of its own)", te.Address)
+		case errors.Is(te, syscall.ECONNREFUSED), errors.Is(te, syscall.EHOSTUNREACH),
+			errors.Is(te, syscall.ENETUNREACH), errors.Is(te, os.ErrDeadlineExceeded),
+			errors.Is(te, context.DeadlineExceeded):
+			return fmt.Sprintf(" (%s: no reachable libp2p listener at the announced address)", te.Address)
+		}
+	}
+	return ""
 }
 
 type xferState struct {
