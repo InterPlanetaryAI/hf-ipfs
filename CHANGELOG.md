@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/InterPlanetaryAI/hf-ipfs/compare/v0.2.0...v0.3.0) (2026-10-11)
+
+
+### Features
+
+* autostart daemon on pulls (toggable) ([#8](https://github.com/InterPlanetaryAI/hf-ipfs/issues/8)) ([9d96bfc](https://github.com/InterPlanetaryAI/hf-ipfs/commit/9d96bfcba1c54fbd50af398e5258243a4b845991))
+
 ## [0.2.0](https://github.com/InterPlanetaryAI/hf-ipfs/compare/v0.1.0...v0.2.0) (2026-10-11)
 
 
