@@ -94,7 +94,7 @@ HF cache at `--hf-hub` (default `$HF_HUB_CACHE`, else `$HF_HOME/hub`, else
 | Command | What it does |
 | --- | --- |
 | `daemon` | Watch the HF cache, ingest finalized downloads (nocopy), announce on the DHT, serve peers, expose a control socket |
-| `pull <repo_id>` | Resolve → find providers → exchange mapping → stream and reconstruct blobs → relink the snapshot; falls back to Hugging Face when the swarm cannot serve |
+| `pull <repo_id>` (alias: `download`) | Resolve → find providers → exchange mapping → stream and reconstruct blobs → relink the snapshot; falls back to Hugging Face when the swarm cannot serve |
 | `ingest <repo_id>` | Share one revision now (default: whatever `refs/main` points at) |
 | `list` | Revisions this node shares |
 | `status` | Daemon state and listen addresses |

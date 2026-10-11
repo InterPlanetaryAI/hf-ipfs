@@ -8,7 +8,7 @@
 //
 //	hf-ipfs daemon [--listen <ma>] [--bootstrap <ma>] [--connect <ma>]
 //	               [--chunk-size N] [--no-watch] [--dht-client] [--rescan DUR]
-//	hf-ipfs pull <repo_id> [--commit <hash>] [--ref main] [--repo-type model]
+//	hf-ipfs pull|download <repo_id> [--commit <hash>] [--ref main] [--repo-type model]
 //	             [--peer <ma>] [--force] [--no-daemon] [--no-fork]
 //	hf-ipfs ingest <repo_id> [--commit <hash>] [--ref main] [--repo-type model]
 //	hf-ipfs list | status | id | resolve <repo_id> | shutdown | version
@@ -65,8 +65,8 @@ func run(args []string) error {
 	switch cmd {
 	case "daemon":
 		return cmdDaemon(rest)
-	case "pull":
-		return cmdPull(rest)
+	case "pull", "download": // "download" mimics the official hf CLI
+		return cmdPull(cmd, rest)
 	case "ingest":
 		return cmdIngest(rest)
 	case "evict":
@@ -343,8 +343,8 @@ func cmdDaemon(args []string) error {
 	return nil
 }
 
-func cmdPull(args []string) error {
-	fs := flag.NewFlagSet("pull", flag.ContinueOnError)
+func cmdPull(name string, args []string) error {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	var c commonFlags
 	c.register(fs)
 	var peers, connect stringList
@@ -369,7 +369,7 @@ func cmdPull(args []string) error {
 		return err
 	}
 	if fs.NArg() < 1 {
-		return errors.New("usage: hf-ipfs pull <repo_id> [--commit <hash>] [--peer <multiaddr>]")
+		return fmt.Errorf("usage: hf-ipfs %s <repo_id> [--commit <hash>] [--peer <multiaddr>]", name)
 	}
 	repoID := fs.Arg(0)
 
@@ -865,7 +865,8 @@ func usage() {
 
 Commands:
   daemon      Share the local HF cache: watch, ingest (nocopy), announce, serve
-  pull        Pull a repo from peers instead of Hugging Face's servers
+  pull, download
+              Pull a repo from peers instead of Hugging Face's servers
               (starts a background daemon if none is running; --no-fork disables)
   ingest      Share one repo revision now (default: what refs/main points at)
   list        Show revisions this node shares
