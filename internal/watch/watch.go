@@ -117,17 +117,21 @@ func (w *Watcher) Scan(ctx context.Context) {
 		}
 		w.tryIngest(ctx, repoID)
 	}
-	w.pruneOrphans(ctx)
+	w.pruneOrphans(ctx, "")
 }
 
-// pruneOrphans drops mappings for repos no longer present in the hub cache.
-func (w *Watcher) pruneOrphans(ctx context.Context) {
+// pruneOrphans drops mappings whose cache content is missing. An empty
+// repoID filters nothing; otherwise only that repo's entries are considered.
+func (w *Watcher) pruneOrphans(ctx context.Context, repoID string) {
 	entries, err := w.n.Mapping.List(ctx)
 	if err != nil {
 		return
 	}
 	tgt := evict.FromNode(w.n)
 	for _, e := range entries {
+		if repoID != "" && e.RepoID != repoID {
+			continue
+		}
 		t := hfcache.RepoType(e.RepoType)
 		paths := hfcache.NewPaths(w.n.Cfg.HFHubDir, e.RepoID, t)
 		if paths.Exists() && hfcache.SnapshotComplete(paths, e.CommitHash) {
@@ -194,7 +198,10 @@ func (w *Watcher) tryIngest(ctx context.Context, repoID string) {
 
 	commit, err := paths.CurrentCommit("main")
 	if err != nil {
-		return // no ref yet
+		// No ref: either nothing downloaded yet, or the repo directory
+		// was deleted wholesale. Prune any mapping whose bytes are gone.
+		w.pruneOrphans(ctx, repoID)
+		return
 	}
 	if entry, ok, err := w.n.Mapping.Get(ctx, commit); err == nil && ok {
 		// Mapped but the bytes are gone: someone deleted them behind our
