@@ -44,7 +44,7 @@ import (
 )
 
 // x-release-please-start-version
-var version = "0.3.0" // release-please bumps this; -ldflags -X main.version overrides it
+var version = "0.4.0" // release-please bumps this; -ldflags -X main.version overrides it
 // x-release-please-end
 
 func main() {

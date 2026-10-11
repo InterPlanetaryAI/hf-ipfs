@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/InterPlanetaryAI/hf-ipfs/compare/v0.3.0...v0.4.0) (2026-10-11)
+
+
+### Features
+
+* **cli:** add 'download' alias for pull ([#10](https://github.com/InterPlanetaryAI/hf-ipfs/issues/10)) ([9e6c4b1](https://github.com/InterPlanetaryAI/hf-ipfs/commit/9e6c4b16dfc267fd9e9570f8fbe0e20b346126d9))
+
 ## [0.3.0](https://github.com/InterPlanetaryAI/hf-ipfs/compare/v0.2.0...v0.3.0) (2026-10-11)
 
 
