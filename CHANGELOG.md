@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.0](https://github.com/InterPlanetaryAI/hf-ipfs/compare/v0.4.4...v0.5.0) (2026-10-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* rebrand hf-ipfs to sf/swarmface ([#21](https://github.com/InterPlanetaryAI/hf-ipfs/issues/21))
+
+### Features
+
+* rebrand hf-ipfs to sf/swarmface ([#21](https://github.com/InterPlanetaryAI/hf-ipfs/issues/21)) ([783c531](https://github.com/InterPlanetaryAI/hf-ipfs/commit/783c531c9639bb0f69dcbb8e408493c59a9b939b))
+
 ## [0.4.4](https://github.com/InterPlanetaryAI/hf-ipfs/compare/v0.4.3...v0.4.4) (2026-10-12)
 
 
