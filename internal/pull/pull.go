@@ -276,7 +276,7 @@ func mapExchange(ctx context.Context, n *node.Node, p peer.AddrInfo, repoID, com
 		return cid.Undef, nil, fmt.Errorf("read map response: %w", err)
 	}
 	if !resp.OK {
-		return cid.Undef, nil, errors.New(resp.Error)
+		return cid.Undef, nil, errors.New(truncatePeerError(resp.Error))
 	}
 	if err := validateMapBinding(commit, &resp); err != nil {
 		return cid.Undef, nil, err
@@ -322,6 +322,16 @@ func validateMapBinding(commit string, resp *wire.MapResponse) error {
 	return nil
 }
 
+// maxPeerErrorLen bounds how much attacker-controlled text a peer can push
+// into the puller's terminal and logs via resp.Error.
+const maxPeerErrorLen = 512
+
+func truncatePeerError(s string) string {
+	if len(s) <= maxPeerErrorLen {
+		return s
+	}
+	return s[:maxPeerErrorLen] + "… (truncated)"
+}
 // dialHint names the address that failed and what the failure means. libp2p
 // stops at "all dials failed". The distinction that matters for a provider is
 // between "nothing is reachable at that address" and "the peer accepted the
