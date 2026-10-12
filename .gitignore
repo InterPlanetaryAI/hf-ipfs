@@ -1,11 +1,13 @@
 .ssh
 # Build output
-/hf-ipfs
-/hf-ipfs.exe
+/sf
+/sf.exe
 
 # Test scratch space
 /tmp/
 
 # Local HF cache and daemon runtime state created by manual runs
 /.cache/
+/.swarmface/
+# Pre-rebrand state dir; may still exist on dev machines (holds the libp2p key)
 /.hf-ipfs/
