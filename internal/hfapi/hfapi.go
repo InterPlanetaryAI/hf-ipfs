@@ -4,6 +4,7 @@ package hfapi
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -90,10 +91,10 @@ func (c *Client) RepoInfo(ctx context.Context, repoID string, t hfcache.RepoType
 // revision-pinned form so it fetches exactly the commit the DHT advertised,
 // not whatever main moved to meanwhile.
 func (c *Client) RepoInfoAt(ctx context.Context, repoID string, t hfcache.RepoType, revision string, blobs bool) (*RepoInfo, error) {
-	url := fmt.Sprintf("%s/api/%s/%s?blobs=%t", c.Endpoint, t.APIPath(), repoID, blobs)
+	url := fmt.Sprintf("%s/api/%s/%s?blobs=%t", c.Endpoint, t.APIPath(), escapePath(repoID), blobs)
 	if revision != "" {
 		url = fmt.Sprintf("%s/api/%s/%s/revision/%s?blobs=%t",
-			c.Endpoint, t.APIPath(), repoID, revision, blobs)
+			c.Endpoint, t.APIPath(), escapePath(repoID), escapePath(revision), blobs)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -122,6 +123,9 @@ func (c *Client) RepoInfoAt(ctx context.Context, repoID string, t hfcache.RepoTy
 	}
 	if len(info.SHA) != 40 {
 		return nil, fmt.Errorf("%s returned no usable commit hash (sha=%q)", repoID, info.SHA)
+	}
+	if _, err := hex.DecodeString(info.SHA); err != nil {
+		return nil, fmt.Errorf("%s returned a non-hex commit hash (sha=%q)", repoID, info.SHA)
 	}
 	return info, nil
 }
@@ -155,7 +159,7 @@ type TreeEntry struct {
 // A failure here costs only Xet-hash fidelity in the generated
 // trees/<commit>.json, so callers may treat it as non-fatal.
 func (c *Client) TreeAt(ctx context.Context, repoID string, t hfcache.RepoType, revision string) ([]TreeEntry, error) {
-	url := fmt.Sprintf("%s/api/%s/%s/tree/%s?recursive=true", c.Endpoint, t.APIPath(), repoID, revision)
+	url := fmt.Sprintf("%s/api/%s/%s/tree/%s?recursive=true", c.Endpoint, t.APIPath(), escapePath(repoID), escapePath(revision))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -201,7 +205,7 @@ func (c *Client) ResolveURL(repoID string, t hfcache.RepoType, revision, path st
 	if t != hfcache.Model {
 		prefix = t.APIPath() + "/"
 	}
-	return fmt.Sprintf("%s/%s%s/resolve/%s/%s", c.Endpoint, prefix, repoID, revision, escapePath(path))
+	return fmt.Sprintf("%s/%s%s/resolve/%s/%s", c.Endpoint, prefix, escapePath(repoID), escapePath(revision), escapePath(path))
 }
 
 // Download streams one file of a revision into w, following the redirect to
@@ -306,7 +310,19 @@ func (tr *trackedReader) Read(p []byte) (int, error) {
 func escapePath(p string) string {
 	segs := strings.Split(p, "/")
 	for i, s := range segs {
-		segs[i] = url.PathEscape(s)
+		// url.PathEscape leaves "." and ".." verbatim, so dot segments
+		// would survive into the request URI and be cleaned away — letting
+		// an unvalidated repo id or revision rewrite the fetched path while
+		// the bearer token rides along. Percent-encoding the dots keeps the
+		// path literal.
+		switch s {
+		case ".":
+			segs[i] = "%2E"
+		case "..":
+			segs[i] = "%2E%2E"
+		default:
+			segs[i] = url.PathEscape(s)
+		}
 	}
 	return strings.Join(segs, "/")
 }

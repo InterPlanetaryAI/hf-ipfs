@@ -106,6 +106,12 @@ func Run(ctx context.Context, n *node.Node, opts Options, ev EventFunc) error {
 		}
 		commit = got
 	}
+	// One boundary check for every consumer of the hash: the dummy CID,
+	// the blobs/snapshots/refs paths and the mapping key all assume 40-hex,
+	// and opts.Commit arrives straight from --commit.
+	if _, err := dummy.FromCommit(commit); err != nil {
+		return fmt.Errorf("step A: %w", err)
+	}
 	ev(wire.ControlEvent{Type: "progress", Message: fmt.Sprintf("step A: %s @ %s", opts.RepoID, commit)})
 
 	// Already shared and linked locally? Nothing to do.

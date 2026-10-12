@@ -161,6 +161,9 @@ func (p Paths) CurrentCommit(ref string) (string, error) {
 	if len(commit) != 40 {
 		return "", fmt.Errorf("refs/%s contains %q, not a 40 char commit hash", ref, commit)
 	}
+	if _, err := hex.DecodeString(commit); err != nil {
+		return "", fmt.Errorf("refs/%s contains %q, not a hex commit hash", ref, commit)
+	}
 	return commit, nil
 }
 
