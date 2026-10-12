@@ -19,6 +19,7 @@ import (
 	merkledag "github.com/ipfs/boxo/ipld/merkledag"
 	blocks "github.com/ipfs/go-block-format"
 	cid "github.com/ipfs/go-cid"
+	ds "github.com/ipfs/go-datastore"
 	ipld "github.com/ipfs/go-ipld-format"
 	logging "github.com/ipfs/go-log/v2"
 	libp2p "github.com/libp2p/go-libp2p"
@@ -45,6 +46,16 @@ import (
 )
 
 var log = logging.Logger("sf")
+
+// Stream budgets for the two custom protocols. libp2p streams carry no
+// default timeout, so every handler arms its own: reads are bounded per
+// frame, writes per block, and a single batch may not ask for the store.
+const (
+	mapReadTimeout    = 30 * time.Second
+	blockIdleTimeout  = time.Minute
+	blockWriteTimeout = 5 * time.Minute
+	maxBlockBatch     = 1024
+)
 
 // Connection budget, from both sides.
 //
@@ -641,6 +652,9 @@ func (n *Node) RegisterFilestoreRef(ctx context.Context, blk blocks.Block, absPa
 // handleMap serves /hf-ipfs/map/1.0.0: commit hash in, actual CID + manifest out.
 func (n *Node) handleMap(s network.Stream) {
 	defer s.Close()
+	// A peer that opens the stream and sends nothing must not pin this
+	// handler forever: libp2p streams have no default timeout.
+	_ = s.SetReadDeadline(time.Now().Add(mapReadTimeout))
 
 	var req wire.MapRequest
 	if err := protoio.ReadJSON(s, &req); err != nil {
@@ -707,6 +721,9 @@ func (n *Node) handleBlocks(s network.Stream) {
 	}
 
 	for {
+		// Re-armed per request frame: an idle stream is dropped, an active
+		// one is never cut off mid-batch.
+		_ = s.SetReadDeadline(time.Now().Add(blockIdleTimeout))
 		var req struct {
 			CIDs []string `json:"cids"`
 		}
@@ -717,8 +734,18 @@ func (n *Node) handleBlocks(s network.Stream) {
 			log.Debugw("block stream request", "err", err)
 			return
 		}
+		// One frame may not ask for the whole store: an 8 MiB frame carries
+		// ~140k CIDs, and serving them all lets a requester that stops
+		// reading pin this handler and the stream indefinitely.
+		if len(req.CIDs) > maxBlockBatch {
+			log.Debugw("block batch too large", "count", len(req.CIDs),
+				"peer", s.Conn().RemotePeer())
+			_ = s.Reset()
+			return
+		}
 
 		for _, raw := range req.CIDs {
+			_ = s.SetWriteDeadline(time.Now().Add(blockWriteTimeout))
 			c, err := cid.Decode(raw)
 			if err != nil {
 				if werr := protoio.WriteFrame(s, []byte{wire.BlockNotFound}); werr != nil {
@@ -728,6 +755,14 @@ func (n *Node) handleBlocks(s network.Stream) {
 			}
 			blk, err := n.Fstore.Get(n.ctx, c)
 			if err != nil || blk == nil {
+				if err != nil && !isNotFound(err) {
+					// A real read failure (datastore or backing file) is
+					// not a missing block; say so instead of silently
+					// telling every puller we do not have it.
+					log.Warnw("block lookup failed", "cid", raw, "err", err)
+					_ = s.Reset()
+					return
+				}
 				if werr := protoio.WriteFrame(s, []byte{wire.BlockNotFound}); werr != nil {
 					return
 				}
@@ -756,6 +791,13 @@ func isStreamEnd(err error) bool {
 		return true
 	}
 	return false
+}
+
+// isNotFound reports whether a blockstore read means "absent" as opposed to
+// "broken": only the former is answered with a not-found frame.
+func isNotFound(err error) bool {
+	var nfe ipld.ErrNotFound
+	return errors.As(err, &nfe) || errors.Is(err, ds.ErrNotFound)
 }
 
 func parseAddrs(strs []string) ([]ma.Multiaddr, error) {
