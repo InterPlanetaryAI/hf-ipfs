@@ -27,8 +27,10 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/p2p/host/autorelay"
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
 	bconnmgr "github.com/libp2p/go-libp2p/p2p/net/connmgr"
+	cirproto "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/proto"
 	ma "github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
 	mh "github.com/multiformats/go-multihash"
@@ -85,6 +87,44 @@ func connLimits() rcmgr.ConcreteLimitConfig {
 	lim.TransientBaseLimit.Conns = connTransientConns
 	lim.TransientBaseLimit.ConnsInbound = connTransientInbound
 	return lim.AutoScale()
+}
+
+// relayCandidates feeds the autorelay candidate pool with peers this node
+// already knows that advertise the circuit v2 hop service. A DHT server sees
+// hundreds of peers and stock Kubo nodes run the relay service, so a private
+// node can reserve a circuit address without being handed a static relay list.
+// get is a thunk because the source is configured before the host exists.
+func relayCandidates(get func() host.Host) autorelay.PeerSource {
+	return func(ctx context.Context, num int) <-chan peer.AddrInfo {
+		out := make(chan peer.AddrInfo)
+		go func() {
+			defer close(out)
+			h := get()
+			if h == nil {
+				return
+			}
+			for _, p := range h.Peerstore().Peers() {
+				if num <= 0 {
+					return
+				}
+				ok, err := h.Peerstore().SupportsProtocols(p, cirproto.ProtoIDv2Hop)
+				if err != nil || len(ok) == 0 {
+					continue
+				}
+				addrs := h.Peerstore().Addrs(p)
+				if len(addrs) == 0 {
+					continue
+				}
+				select {
+				case out <- peer.AddrInfo{ID: p, Addrs: addrs}:
+					num--
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+		return out
+	}
 }
 
 // Node is the embedded sharing/pulling node.
@@ -145,6 +185,8 @@ func New(ctx context.Context, cfg *config.Config) (*Node, error) {
 		return nil, err
 	}
 
+	var h host.Host
+
 	opts := []libp2p.Option{
 		libp2p.Identity(key),
 		libp2p.ListenAddrStrings(cfg.Listen...),
@@ -173,9 +215,10 @@ func New(ctx context.Context, cfg *config.Config) (*Node, error) {
 		if cfg.Relay && cfg.RelayService {
 			opts = append(opts, libp2p.EnableRelayService())
 		}
-		// Reserve our own /p2p-circuit address through a known relay.
-		// Without this a NAT'd seeder has no relayed address to announce,
-		// and --relay-bulk alone changes nothing for pullers.
+		// A NAT'd seeder is only pullable if it has an address strangers can
+		// actually use. Without a reserved circuit address there is nothing for
+		// a puller to dial, hole punching has no candidate to punch at, and
+		// --relay-bulk changes nothing for anyone.
 		if cfg.Relay && len(cfg.StaticRelays) > 0 {
 			relays := make([]peer.AddrInfo, 0, len(cfg.StaticRelays))
 			for _, s := range cfg.StaticRelays {
@@ -190,9 +233,15 @@ func New(ctx context.Context, cfg *config.Config) (*Node, error) {
 				relays = append(relays, *ai)
 			}
 			opts = append(opts, libp2p.EnableAutoRelayWithStaticRelays(relays))
+		} else if cfg.Relay {
+			// No static list: discover relays among the peers we already know.
+			// Autorelay only activates once AutoNAT reports us unreachable, so
+			// a publicly dialable node pays nothing for this.
+			opts = append(opts, libp2p.EnableAutoRelayWithPeerSource(
+				relayCandidates(func() host.Host { return h })))
 		}
 	}
-	h, err := libp2p.New(opts...)
+	h, err = libp2p.New(opts...)
 	if err != nil {
 		_ = st.Close()
 		_ = lock.Close()
