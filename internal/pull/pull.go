@@ -48,6 +48,11 @@ var log = logging.Logger("sf/pull")
 // BatchSize is how many chunks are requested per round trip on the block stream.
 const BatchSize = 64
 
+// maxFileChunks bounds the leaf list of one file. At the default 1 MiB
+// chunk size it allows 1 TiB, far above any real shard, while capping the
+// memory a peer-shaped DAG can force the puller to allocate.
+var maxFileChunks = 1 << 20
+
 // Options controls a single pull.
 type Options struct {
 	RepoID   string
@@ -581,8 +586,21 @@ func findNode(ctx context.Context, ds ipld.DAGService, root cid.Cid, rel string)
 	return cur, nil
 }
 
+// collectLeaves appends the raw leaves under c, in order.
+//
+// The DAG below c is built from a peer's answer, so a small graph can
+// encode exponentially many paths: d nodes that each link twice to their
+// predecessor have 2^d leaf paths but only d distinct blocks. Interior
+// nodes cannot simply be memoized — a file of repeated chunks legitimately
+// shares interior CIDs — so the defense is the leaf budget: expansion is
+// bounded work (re-visits of a node hit the local blockstore, which
+// getBlock populated on first fetch) and the pull fails cleanly once the
+// peer's chunk count exceeds anything a real file could carry.
 func collectLeaves(ctx context.Context, ds ipld.DAGService, c cid.Cid, out *[]cid.Cid) error {
 	if c.Type() == cid.Raw {
+		if len(*out) >= maxFileChunks {
+			return fmt.Errorf("chunk count exceeds %d (cid %s)", maxFileChunks, c)
+		}
 		*out = append(*out, c)
 		return nil
 	}
