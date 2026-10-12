@@ -1,24 +1,26 @@
 package node
 
-import (
-	"testing"
+import "testing"
 
-	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
-)
-
-// The watermarks are only a guard because they sit under go-libp2p's default
-// resource-manager budget. The budget scales *up* with RAM, so the base limit is
-// the smallest it ever gets — and the outbound sub-limit is scaled the same way,
-// meaning outbound alone can consume the whole system scope and starve the
-// listener. Raise the watermarks past the base and the guard silently stops
-// binding, which is the failure this exists to prevent.
+// The watermarks only protect inbound while they sit under the ceilings we
+// configure, and the ceilings only protect inbound while neither direction can
+// consume the whole system scope. Raise the watermarks or lower a ceiling and
+// the guard silently stops binding — which is the failure these numbers exist
+// to prevent.
 func TestConnWatermarksUnderBudget(t *testing.T) {
-	base := rcmgr.DefaultLimits.SystemBaseLimit
 	if connLowWater >= connHighWater {
 		t.Fatalf("low water %d must be below high water %d", connLowWater, connHighWater)
 	}
-	if connHighWater >= base.Conns {
-		t.Fatalf("high water %d must stay under the system conn budget %d, or outbound starves inbound accepts",
-			connHighWater, base.Conns)
+	if connHighWater >= connConnsInbound {
+		t.Fatalf("high water %d must stay under the inbound ceiling %d, or outbound "+
+			"trimming no longer leaves room for strangers", connHighWater, connConnsInbound)
+	}
+	if connConnsInbound+connConnsOutbound > connConns {
+		t.Fatalf("inbound %d + outbound %d must fit the system scope %d, so one "+
+			"direction cannot starve the other", connConnsInbound, connConnsOutbound, connConns)
+	}
+	if connTransientInbound < connHighWater {
+		t.Fatalf("transient inbound %d must cover the watermark %d, or handshakes are "+
+			"refused before the steady-state ceiling is reached", connTransientInbound, connHighWater)
 	}
 }
