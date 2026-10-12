@@ -392,3 +392,17 @@ func TestWriteSnapshotRejectsEscapingManifest(t *testing.T) {
 		t.Fatal("escaping blob name accepted")
 	}
 }
+
+func TestCurrentCommitRejectsNonHex(t *testing.T) {
+	hub := t.TempDir()
+	p := NewPaths(hub, "a/b", Model)
+	if err := os.MkdirAll(p.Refs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p.RefPath("main"), []byte(strings.Repeat("g", 40)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.CurrentCommit("main"); err == nil {
+		t.Error("a 40-char non-hex ref should be rejected")
+	}
+}

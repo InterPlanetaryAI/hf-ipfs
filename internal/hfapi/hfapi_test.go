@@ -135,3 +135,19 @@ func TestDownloadAbortsOnStalledBody(t *testing.T) {
 		t.Fatal("stalled body did not abort")
 	}
 }
+
+func TestRepoInfoAtRejectsNonHexSHA(t *testing.T) {
+	body := `{"id":"org/m","sha":"0123456789abcdef0123456789abcdef0123456/","siblings":[]}`
+	c, _ := recorder(t, http.StatusOK, body)
+	if _, err := c.RepoInfoAt(context.Background(), "org/m", hfcache.Model, "", true); err == nil {
+		t.Fatal("40-char non-hex sha accepted")
+	}
+}
+
+func TestResolveURLEscapesDotSegments(t *testing.T) {
+	c := NewClient("https://h")
+	u := c.ResolveURL("../../evil", hfcache.Model, "main", "f.bin")
+	if !strings.Contains(u, "%2E%2E") || strings.Contains(u, "/../../") {
+		t.Errorf("traversal survived into the request URI: %s", u)
+	}
+}

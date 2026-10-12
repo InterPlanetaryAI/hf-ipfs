@@ -204,6 +204,9 @@ func manifestFromRevision(siblings []hfapi.Sibling, xetByPath map[string]string)
 		if !hfcache.SafeBlobName(s.BlobID) || !hfcache.SafeRelPath(s.RFilename) {
 			return nil, 0, fmt.Errorf("hub returned unsafe blob id %q or path %q", s.BlobID, s.RFilename)
 		}
+		if s.Size < 0 || (s.LFS != nil && s.LFS.Size < 0) {
+			return nil, 0, fmt.Errorf("%s has negative size", s.RFilename)
+		}
 		f := mapping.FileManifest{
 			Path:     s.RFilename,
 			BlobName: s.BlobID,

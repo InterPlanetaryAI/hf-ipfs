@@ -216,3 +216,12 @@ func TestManifestFromRevisionRejectsTraversal(t *testing.T) {
 		t.Error("escaping blobId accepted")
 	}
 }
+
+func TestManifestFromRevisionRejectsNegativeSize(t *testing.T) {
+	if _, _, err := manifestFromRevision([]hfapi.Sibling{{RFilename: "x", BlobID: "abc", Size: -1}}, nil); err == nil {
+		t.Error("negative size accepted")
+	}
+	if _, _, err := manifestFromRevision([]hfapi.Sibling{{RFilename: "x", BlobID: "abc", LFS: &hfapi.LFSInfo{Size: -5}}}, nil); err == nil {
+		t.Error("negative LFS size accepted")
+	}
+}
