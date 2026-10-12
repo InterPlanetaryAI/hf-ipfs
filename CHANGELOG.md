@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.4](https://github.com/InterPlanetaryAI/hf-ipfs/compare/v0.4.3...v0.4.4) (2026-10-12)
+
+
+### Bug Fixes
+
+* **ci:** make PR gate's collaborator check actually work ([#19](https://github.com/InterPlanetaryAI/hf-ipfs/issues/19)) ([41a2203](https://github.com/InterPlanetaryAI/hf-ipfs/commit/41a220323cec1bf4672c8f6db75e302e93e857de))
+
 ## [0.4.3](https://github.com/InterPlanetaryAI/hf-ipfs/compare/v0.4.2...v0.4.3) (2026-10-12)
 
 
