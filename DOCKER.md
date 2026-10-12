@@ -1,4 +1,4 @@
-# Running hf-ipfs in Docker
+# Running sf-go in Docker
 
 The image is a static Go binary on `alpine:3.21` — no runtime dependencies,
 no sidecars. The daemon shares whatever is in the Hugging Face cache you mount;
@@ -6,7 +6,7 @@ the CLI lives in the same image, so one image covers seeding and pulling.
 
 ## The one rule: mount paths must match
 
-`hf-ipfs` uses IPFS Filestore: the node stores **absolute paths** into
+`sf-go` uses IPFS Filestore: the node stores **absolute paths** into
 `~/.cache/huggingface/hub/.../blobs/`, recorded at ingest time. A path
 recorded by one process must resolve identically for every later one, or the
 shared blocks read as missing files.

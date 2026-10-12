@@ -1,8 +1,8 @@
-# hf-ipfs
+# swarmface-go
 
 Part of **IPAI** (InterPlanetary Artificial Intelligence).
 
-`hf-ipfs` is a single, self-contained Go binary that transparently bridges the
+`sf` is a single, self-contained Go binary that transparently bridges the
 Hugging Face local cache and the IPFS network. It runs as a background sharing
 daemon and as a CLI pulling tool, letting users share and pull multi-gigabyte
 models peer-to-peer using standard Hugging Face repository names
@@ -14,7 +14,7 @@ daemon, no sidecar service.
 
 ```
         ~/.cache/huggingface/hub/         ┌──────────────────────────┐
-   ┌──────────────────────────────────┐   │  hf-ipfs (one binary)    │
+   ┌──────────────────────────────────┐   │  sf (one binary)         │
    │ models--org--name/               │   │                          │
    │   blobs/<sha256>   <── the bytes │◄──┤ filestore: (path,offset) │
    │   snapshots/<commit>/file        │   │ kad-dht: dummy CID keys  │
@@ -23,7 +23,7 @@ daemon, no sidecar service.
                                           └───────────┬──────────────┘
                                                       │ libp2p
                                           ┌───────────┴────────────┐
-                                          │ other hf-ipfs peers    │
+                                          │ other swarmface peers  │
                                           └────────────────────────┘
 ```
 
@@ -48,7 +48,7 @@ Two systems that look unrelated are the same kind of system:
 Requires Go 1.21+ (developed against 1.27).
 
 ```bash
-git clone <this repo> && cd hf-ipfs
+git clone <this repo> && cd sf-go
 go build -o sf .
 ./sf version
 ```
