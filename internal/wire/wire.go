@@ -1,4 +1,4 @@
-// Package wire defines the JSON messages exchanged over the hf-ipfs libp2p
+// Package wire defines the JSON messages exchanged over the swarmface libp2p
 // streams and the local daemon control socket.
 package wire
 

@@ -1,4 +1,4 @@
-// Package identity persists the libp2p Ed25519 key so a hf-ipfs node keeps a
+// Package identity persists the libp2p Ed25519 key so a swarmface node keeps a
 // stable Peer ID across restarts.
 package identity
 

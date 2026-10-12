@@ -1,5 +1,5 @@
 // Package protoio provides the tiny length-prefixed framing shared by the
-// hf-ipfs libp2p streams and the local control socket.
+// swarmface libp2p streams and the local control socket.
 //
 // Frame layout: 4 byte big-endian length, then that many bytes of payload.
 // JSON messages are frames whose payload is UTF-8 JSON; block frames carry raw

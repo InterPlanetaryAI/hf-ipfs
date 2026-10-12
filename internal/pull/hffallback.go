@@ -227,7 +227,7 @@ func manifestFromRevision(siblings []hfapi.Sibling, xetByPath map[string]string)
 // work against a daemon that was started without one.
 //
 // The token travels only as an Authorization header — never in a URL, and
-// never echoed into an error, because hf-ipfs logs both.
+// never echoed into an error, because swarmface logs both.
 func hfClient(n *node.Node, override string) *hfapi.Client {
 	c := hfapi.NewClient(n.Cfg.HFEndpoint)
 	c.Token = resolveToken(override, n.Cfg.HFToken)

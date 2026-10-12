@@ -1,5 +1,5 @@
 // Package hfcache models the on-disk layout of the upstream `hf` CLI cache so
-// hf-ipfs can read and write it transparently.
+// swarmface can read and write it transparently.
 //
 //	$HF_HUB_CACHE/
 //	  models--openai-community--gpt2/
@@ -14,7 +14,7 @@
 //
 // The symlink target basename is authoritative for blob naming: whatever the hf
 // CLI chose (LFS sha256 for large files, git blob id for small ones) is exactly
-// what a receiving peer must reproduce, so hf-ipfs carries it verbatim in the
+// what a receiving peer must reproduce, so swarmface carries it verbatim in the
 // manifest instead of re-deriving it.
 package hfcache
 
