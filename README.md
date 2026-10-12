@@ -43,6 +43,27 @@ Two systems that look unrelated are the same kind of system:
    availability; native libp2p streams exchange mapping metadata and blocks. No
    central servers, no blockchain, no PubSub.
 
+## Install
+
+Prebuilt binaries for Linux and macOS (amd64/arm64) are on the
+[releases page](https://github.com/InterPlanetaryAI/sf-go/releases/latest).
+The snippet below resolves the latest version and verifies the published
+SHA-256 digest before extracting (needs `curl` and `jq`):
+
+```bash
+os=linux    # or: darwin
+arch=amd64  # or: arm64
+json=$(curl -s https://api.github.com/repos/InterPlanetaryAI/sf-go/releases/latest)
+ver=$(jq -r .tag_name <<<"$json")
+asset="sf-${ver#v}-${os}-${arch}.tar.gz"
+sha=$(jq -r --arg n "$asset" '.assets[]|select(.name==$n).digest' <<<"$json")
+curl -sL "https://github.com/InterPlanetaryAI/sf-go/releases/download/${ver}/${asset}" -o "$asset"
+echo "${sha#sha256:}  $asset" | sha256sum -c   # macOS: shasum -a 256 -c
+tar xzf "$asset" && rm "$asset"
+./sf version
+sudo mv sf /usr/local/bin/   # optional
+```
+
 ## Build
 
 Requires Go 1.21+ (developed against 1.27).
