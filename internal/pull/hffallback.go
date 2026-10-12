@@ -201,6 +201,9 @@ func manifestFromRevision(siblings []hfapi.Sibling, xetByPath map[string]string)
 		if s.BlobID == "" {
 			return nil, 0, fmt.Errorf("%s has no blob id", s.RFilename)
 		}
+		if !hfcache.SafeBlobName(s.BlobID) || !hfcache.SafeRelPath(s.RFilename) {
+			return nil, 0, fmt.Errorf("hub returned unsafe blob id %q or path %q", s.BlobID, s.RFilename)
+		}
 		f := mapping.FileManifest{
 			Path:     s.RFilename,
 			BlobName: s.BlobID,

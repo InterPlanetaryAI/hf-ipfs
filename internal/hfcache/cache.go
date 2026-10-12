@@ -334,6 +334,9 @@ func WriteSnapshot(p Paths, commit string, files []mapping.FileManifest, ref str
 		return fmt.Errorf("create snapshot dir: %w", err)
 	}
 	for _, f := range files {
+		if !SafeRelPath(f.Path) || !SafeBlobName(f.BlobName) {
+			return fmt.Errorf("unsafe manifest path %q or blob name %q", f.Path, f.BlobName)
+		}
 		relTarget := filepath.FromSlash(f.Path)
 		linkPath := filepath.Join(snapDir, relTarget)
 		if err := os.MkdirAll(filepath.Dir(linkPath), 0o755); err != nil {
@@ -390,6 +393,30 @@ func under(root, path string) bool {
 		return false
 	}
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
+// SafeBlobName reports whether name is usable as a blob filename: a single
+// path segment, no traversal. Real blob names are hex object ids, so anything
+// with separators or dots is either malicious or corrupt.
+func SafeBlobName(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	return !strings.ContainsAny(name, `/\`)
+}
+
+// SafeRelPath reports whether a slash-separated manifest path stays inside
+// the snapshot dir: relative, with no empty, '.' or '..' segments.
+func SafeRelPath(p string) bool {
+	if p == "" || strings.HasPrefix(p, "/") || strings.Contains(p, `\`) {
+		return false
+	}
+	for _, s := range strings.Split(p, "/") {
+		if s == "" || s == "." || s == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // bookkeepingDirs hold a snapshot's plumbing rather than its content: .git

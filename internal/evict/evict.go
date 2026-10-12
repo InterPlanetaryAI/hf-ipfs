@@ -130,6 +130,11 @@ func Commit(ctx context.Context, tgt *Target, entry *mapping.Entry, progress fun
 		return err
 	}
 	for _, f := range entry.Files {
+		if !hfcache.SafeBlobName(f.BlobName) {
+			// Mapping written by a pre-validation release: never remove
+			// outside blobs/, leave the stray file for a manual sweep.
+			continue
+		}
 		blob := filepath.Clean(paths.BlobPath(f.BlobName))
 		if remaining[blob] {
 			continue

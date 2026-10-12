@@ -266,6 +266,13 @@ func mapExchange(ctx context.Context, n *node.Node, p peer.AddrInfo, repoID, com
 	if !resp.OK {
 		return cid.Undef, nil, errors.New(resp.Error)
 	}
+	// The manifest names become filesystem paths on the sink side; reject
+	// traversal here, once, instead of guarding every write.
+	for _, f := range resp.Files {
+		if !hfcache.SafeRelPath(f.Path) || !hfcache.SafeBlobName(f.BlobName) {
+			return cid.Undef, nil, fmt.Errorf("peer sent unsafe manifest path %q or blob name %q", f.Path, f.BlobName)
+		}
+	}
 	actual, err := cid.Decode(resp.ActualCID)
 	if err != nil {
 		return cid.Undef, nil, fmt.Errorf("peer sent unusable actual cid %q: %w", resp.ActualCID, err)

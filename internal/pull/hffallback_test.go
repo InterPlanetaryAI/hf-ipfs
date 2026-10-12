@@ -207,3 +207,12 @@ func TestResolveURL(t *testing.T) {
 		t.Errorf("space resolve = %s, want %s", got, want)
 	}
 }
+
+func TestManifestFromRevisionRejectsTraversal(t *testing.T) {
+	if _, _, err := manifestFromRevision([]hfapi.Sibling{{RFilename: "../../x", BlobID: "abc"}}, nil); err == nil {
+		t.Error("escaping rfilename accepted")
+	}
+	if _, _, err := manifestFromRevision([]hfapi.Sibling{{RFilename: "x", BlobID: "../blob"}}, nil); err == nil {
+		t.Error("escaping blobId accepted")
+	}
+}

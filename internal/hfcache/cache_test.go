@@ -5,7 +5,10 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/ipai/hf-ipfs/internal/mapping"
 )
 
 const testCommit = "607a30d783dfa663caf39e06633721c8d4cfcd7e"
@@ -332,5 +335,60 @@ func TestCurrentCommitRejectsGarbage(t *testing.T) {
 	}
 	if _, err := p.CurrentCommit("main"); err == nil {
 		t.Error("a non-40-char ref should be rejected")
+	}
+}
+
+func TestSafeBlobNameRejectsTraversal(t *testing.T) {
+	for _, bad := range []string{"", ".", "..", "a/b", `\`, `..\x`, "a/", "/a"} {
+		if SafeBlobName(bad) {
+			t.Errorf("SafeBlobName(%q) = true, want false", bad)
+		}
+	}
+	for _, good := range []string{"deadbeef", "sha256-abc", ".hidden"} {
+		if !SafeBlobName(good) {
+			t.Errorf("SafeBlobName(%q) = false, want true", good)
+		}
+	}
+}
+
+func TestSafeRelPathRejectsTraversal(t *testing.T) {
+	for _, bad := range []string{"", "/abs", "../x", "a/../../x", "a//b", "a/./b", `a\b`} {
+		if SafeRelPath(bad) {
+			t.Errorf("SafeRelPath(%q) = true, want false", bad)
+		}
+	}
+	for _, good := range []string{"x", "a/b/c", ".gitattributes", "a/..b"} {
+		if !SafeRelPath(good) {
+			t.Errorf("SafeRelPath(%q) = false, want true", good)
+		}
+	}
+}
+
+// A peer manifest whose Path escapes the snapshot dir must be refused before
+// anything is created: the pre-fix code removed whatever lived at the escaped
+// path and planted a symlink there.
+func TestWriteSnapshotRejectsEscapingManifest(t *testing.T) {
+	hub := t.TempDir()
+	p := NewPaths(hub, "a/b", Model)
+	if err := os.MkdirAll(p.Blobs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p.BlobPath("blob1"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	victim := filepath.Join(hub, "victim.txt")
+	if err := os.WriteFile(victim, []byte("user data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files := []mapping.FileManifest{{Path: "../../victim.txt", BlobName: "blob1", Size: 1}}
+	if err := WriteSnapshot(p, strings.Repeat("a", 40), files, "main"); err == nil {
+		t.Fatal("escaping manifest path accepted")
+	}
+	if fi, err := os.Lstat(victim); err != nil || fi.Mode()&os.ModeSymlink != 0 {
+		t.Errorf("victim file was clobbered: %v mode=%v", err, fi.Mode())
+	}
+	bad := []mapping.FileManifest{{Path: "ok.txt", BlobName: "../escape", Size: 1}}
+	if err := WriteSnapshot(p, strings.Repeat("b", 40), bad, "main"); err == nil {
+		t.Fatal("escaping blob name accepted")
 	}
 }
