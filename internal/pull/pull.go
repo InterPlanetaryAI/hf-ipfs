@@ -42,7 +42,7 @@ import (
 	"github.com/ipai/hf-ipfs/internal/wire"
 )
 
-var log = logging.Logger("hf-ipfs/pull")
+var log = logging.Logger("sf/pull")
 
 // BatchSize is how many chunks are requested per round trip on the block stream.
 const BatchSize = 64

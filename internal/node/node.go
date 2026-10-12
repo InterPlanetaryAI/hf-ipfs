@@ -1,6 +1,6 @@
 // Package node assembles the embedded IPFS/libp2p node: a persistent identity,
 // a Kademlia DHT, a filestore-backed blockstore (nocopy), and the custom
-// hf-ipfs stream protocols that let peers resolve HF commits to content CIDs
+// swarmface stream protocols that let peers resolve HF commits to content CIDs
 // and stream the blocks.
 package node
 
@@ -44,7 +44,7 @@ import (
 	"github.com/ipai/hf-ipfs/internal/wire"
 )
 
-var log = logging.Logger("hf-ipfs")
+var log = logging.Logger("sf")
 
 // Connection budget, from both sides.
 //
@@ -354,7 +354,7 @@ func (n *Node) trackReachability(sub event.Subscription) {
 	}
 }
 
-// registerHandlers advertises the custom hf-ipfs libp2p protocols.
+// registerHandlers advertises the custom swarmface libp2p protocols.
 func (n *Node) registerHandlers() {
 	n.Host.SetStreamHandler(config.ProtocolMapID, n.handleMap)
 	n.Host.SetStreamHandler(config.ProtocolBlockID, n.handleBlocks)

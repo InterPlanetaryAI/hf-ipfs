@@ -24,7 +24,7 @@ import (
 	"github.com/ipai/hf-ipfs/internal/node"
 )
 
-var log = logging.Logger("hf-ipfs/watch")
+var log = logging.Logger("sf/watch")
 
 // DebounceWindow is how long a repo must be quiet before we try to ingest it.
 const DebounceWindow = 1500 * time.Millisecond

@@ -1,7 +1,7 @@
 // Package controls implements the daemon's local Unix-domain control API.
 //
 // bbolt admits a single writer process, so the daemon owns the repo for as long
-// as it runs. `hf-ipfs pull` therefore proxies to the daemon when one is
+// as it runs. `sf pull` therefore proxies to the daemon when one is
 // listening, and only builds its own embedded node when none is.
 package controls
 
@@ -26,7 +26,7 @@ import (
 	"github.com/ipai/hf-ipfs/internal/wire"
 )
 
-var log = logging.Logger("hf-ipfs/controls")
+var log = logging.Logger("sf/controls")
 
 // Server accepts control requests on a Unix socket.
 type Server struct {
@@ -38,7 +38,7 @@ type Server struct {
 	Shutdown chan struct{}
 }
 
-// Alive reports whether a hf-ipfs daemon is listening on socketPath.
+// Alive reports whether a swarmface daemon is listening on socketPath.
 func Alive(socketPath string) bool { return probe(socketPath) }
 
 // Call sends one control request to the daemon and streams events through fn.

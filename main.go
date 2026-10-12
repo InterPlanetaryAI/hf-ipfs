@@ -1,4 +1,4 @@
-// Command hf-ipfs bridges the Hugging Face local cache and the IPFS network.
+// Command sf bridges the Hugging Face local cache and the IPFS network.
 //
 // It embeds an IPFS/libp2p node directly in the binary (no Kubo daemon) and
 // uses filestore so shared models are never copied out of
@@ -6,12 +6,12 @@
 //
 // Usage:
 //
-//	hf-ipfs daemon [--listen <ma>] [--bootstrap <ma>] [--connect <ma>]
+//	sf daemon [--listen <ma>] [--bootstrap <ma>] [--connect <ma>]
 //	               [--chunk-size N] [--no-watch] [--dht-client] [--rescan DUR]
-//	hf-ipfs pull|download <repo_id> [--commit <hash>] [--ref main] [--repo-type model]
+//	sf pull|download <repo_id> [--commit <hash>] [--ref main] [--repo-type model]
 //	             [--peer <ma>] [--force] [--no-daemon] [--no-fork]
-//	hf-ipfs ingest <repo_id> [--commit <hash>] [--ref main] [--repo-type model]
-//	hf-ipfs list | status | id | resolve <repo_id> | shutdown | version
+//	sf ingest <repo_id> [--commit <hash>] [--ref main] [--repo-type model]
+//	sf list | status | id | resolve <repo_id> | shutdown | version
 package main
 
 import (
@@ -50,7 +50,7 @@ var version = "0.4.4" // release-please bumps this; -ldflags -X main.version ove
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		if !errors.Is(err, flag.ErrHelp) {
-			fmt.Fprintln(os.Stderr, "hf-ipfs: error:", err)
+			fmt.Fprintln(os.Stderr, "sf: error:", err)
 		}
 		os.Exit(1)
 	}
@@ -82,7 +82,7 @@ func run(args []string) error {
 	case "shutdown":
 		return cmdShutdown(rest)
 	case "version", "-v", "--version":
-		fmt.Println("hf-ipfs", version)
+		fmt.Println("sf", version)
 		return nil
 	case "help", "-h", "--help":
 		usage()
@@ -142,7 +142,7 @@ type commonFlags struct {
 }
 
 func (c *commonFlags) register(fs *flag.FlagSet) {
-	fs.StringVar(&c.repo, "repo", "", "hf-ipfs state dir (default $HF_IPFS_REPO or ~/.hf-ipfs)")
+	fs.StringVar(&c.repo, "repo", "", "sf state dir (default $SWARMFACE_REPO or ~/.swarmface)")
 	fs.StringVar(&c.hfHub, "hf-hub", "", "HF hub cache dir (default $HF_HUB_CACHE or $HF_HOME/hub)")
 	fs.StringVar(&c.endpoint, "endpoint", "", "HF Hub API endpoint (default $HF_ENDPOINT)")
 	fs.StringVar(&c.hfToken, "hf-token", "",
@@ -168,7 +168,7 @@ func (c *commonFlags) apply(cfg *config.Config) error {
 	if level == "" {
 		level = "info"
 	}
-	for _, name := range []string{"hf-ipfs", "hf-ipfs/pull", "hf-ipfs/watch", "hf-ipfs/controls"} {
+	for _, name := range []string{"sf", "sf/pull", "sf/watch", "sf/controls"} {
 		if err := logging.SetLogLevel(name, level); err != nil {
 			return err
 		}
@@ -253,7 +253,7 @@ func cmdDaemon(args []string) error {
 	}
 	defer n.Close()
 
-	fmt.Printf("hf-ipfs %s daemon\n", version)
+	fmt.Printf("sf %s daemon\n", version)
 	fmt.Printf("  peer id : %s\n", n.PeerID)
 	for _, a := range n.Addrs() {
 		fmt.Printf("  addr    : %s\n", a)
@@ -369,7 +369,7 @@ func cmdPull(name string, args []string) error {
 		return err
 	}
 	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: hf-ipfs %s <repo_id> [--commit <hash>] [--peer <multiaddr>]", name)
+		return fmt.Errorf("usage: sf %s <repo_id> [--commit <hash>] [--peer <multiaddr>]", name)
 	}
 	repoID := fs.Arg(0)
 
@@ -401,7 +401,7 @@ func cmdPull(name string, args []string) error {
 	if !noDaemon {
 		if !controls.Alive(cfg.APISocket) && !noFork {
 			if err := forkDaemon(cfg, &c); err != nil {
-				fmt.Fprintf(os.Stderr, "hf-ipfs: background daemon did not start (%v); pulling in-process\n", err)
+				fmt.Fprintf(os.Stderr, "sf: background daemon did not start (%v); pulling in-process\n", err)
 			}
 		}
 		if controls.Alive(cfg.APISocket) {
@@ -439,7 +439,7 @@ func cmdPull(name string, args []string) error {
 	}, printEvent)
 }
 
-// forkDaemon starts `hf-ipfs daemon` as a detached background process and
+// forkDaemon starts `sf daemon` as a detached background process and
 // waits for its control socket to answer. Flags set on the pull are
 // forwarded; the child re-resolves everything else from the same
 // environment. The token travels via the environment, never argv: argv is
@@ -526,7 +526,7 @@ func cmdIngest(args []string) error {
 		return err
 	}
 	if fs.NArg() < 1 {
-		return errors.New("usage: hf-ipfs ingest <repo_id> [--commit <hash>]")
+		return errors.New("usage: sf ingest <repo_id> [--commit <hash>]")
 	}
 	repoID := fs.Arg(0)
 
@@ -589,7 +589,7 @@ func cmdEvict(args []string) error {
 		return err
 	}
 	if fs.NArg() < 1 {
-		return errors.New("usage: hf-ipfs evict <repo_id> [--commit <hash>]")
+		return errors.New("usage: sf evict <repo_id> [--commit <hash>]")
 	}
 	repoID := fs.Arg(0)
 
@@ -701,7 +701,7 @@ func cmdStatus(args []string) error {
 	}
 	fmt.Println("daemon: not running")
 	if _, _, err := identity.Load(cfg.KeyPath()); err == nil {
-		fmt.Println("(identity present; run `hf-ipfs daemon` to share)")
+		fmt.Println("(identity present; run `sf daemon` to share)")
 	}
 	return nil
 }
@@ -722,7 +722,7 @@ func cmdID(args []string) error {
 	}
 	_, pid, err := identity.Load(cfg.KeyPath())
 	if err != nil {
-		return fmt.Errorf("no identity yet at %s (run `hf-ipfs daemon` once to create it)", cfg.KeyPath())
+		return fmt.Errorf("no identity yet at %s (run `sf daemon` once to create it)", cfg.KeyPath())
 	}
 	fmt.Println(pid)
 	return nil
@@ -738,7 +738,7 @@ func cmdResolve(args []string) error {
 		return err
 	}
 	if fs.NArg() < 1 {
-		return errors.New("usage: hf-ipfs resolve <repo_id>")
+		return errors.New("usage: sf resolve <repo_id>")
 	}
 	cfg, err := config.Default()
 	if err != nil {
@@ -861,7 +861,7 @@ func humanBytes(b int64) string {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `hf-ipfs — share Hugging Face models over IPFS without Kubo
+	fmt.Fprint(os.Stderr, `sf — share Hugging Face models over IPFS without Kubo
 
 Commands:
   daemon      Share the local HF cache: watch, ingest (nocopy), announce, serve
@@ -878,9 +878,9 @@ Commands:
   version     Print the version
 
 Examples:
-  hf-ipfs daemon --listen /ip4/127.0.0.1/tcp/4001
-  hf-ipfs pull meta-llama/Llama-2-7b
-  hf-ipfs pull google/gemma-2b --peer /ip4/10.0.0.5/tcp/4001/p2p/12D3Koo...
-  hf-ipfs ingest openai-community/gpt2 --commit 607a30d783dfa663caf39e06633721c8d4cfcd7e
+  sf daemon --listen /ip4/127.0.0.1/tcp/4001
+  sf pull meta-llama/Llama-2-7b
+  sf pull google/gemma-2b --peer /ip4/10.0.0.5/tcp/4001/p2p/12D3Koo...
+  sf ingest openai-community/gpt2 --commit 607a30d783dfa663caf39e06633721c8d4cfcd7e
 `)
 }
