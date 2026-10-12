@@ -49,8 +49,8 @@ Requires Go 1.21+ (developed against 1.27).
 
 ```bash
 git clone <this repo> && cd hf-ipfs
-go build -o hf-ipfs .
-./hf-ipfs version
+go build -o sf .
+./sf version
 ```
 
 ## Docker
@@ -64,7 +64,7 @@ docker compose up -d
 docker compose logs -f   # peer id, swarm size, reachability verdict
 ```
 
-The critical constraint is that the container must see `~/.hf-ipfs` and
+The critical constraint is that the container must see `~/.swarmface` and
 `~/.cache/huggingface` at the **same absolute paths** the filestore
 recorded — compose handles this; see [DOCKER.md](DOCKER.md) for the full
 guide: plain `docker run`, running CLI commands against the containerized
@@ -74,18 +74,18 @@ daemon, tokens, port-forwarding for dialability, and troubleshooting.
 
 ```bash
 # Node A — share whatever is already in your HF cache
-hf-ipfs daemon --listen /ip4/127.0.0.1/tcp/4101
+sf daemon --listen /ip4/127.0.0.1/tcp/4101
 #   peer id : 12D3KooWEB…
 #   addr    : /ip4/127.0.0.1/tcp/4101/p2p/12D3KooWEB…
 
 # Node B — pull instead of downloading from Hugging Face
-hf-ipfs pull testorg/testmodel \
+sf pull testorg/testmodel \
   --commit 607a30d783dfa663caf39e06633721c8d4cfcd7e \
   --peer /ip4/127.0.0.1/tcp/4101/p2p/12D3KooWEB… \
-  --repo ~/.hf-ipfs-b --hf-hub ~/.cache/huggingface-b
+  --repo ~/.swarmface-b --hf-hub ~/.cache/huggingface-b
 ```
 
-`hf-ipfs` keeps its own state in `~/.hf-ipfs` (`--repo`) and reads/writes the
+`sf` keeps its own state in `~/.swarmface` (`--repo`) and reads/writes the
 HF cache at `--hf-hub` (default `$HF_HUB_CACHE`, else `$HF_HOME/hub`, else
 `~/.cache/huggingface/hub`).
 
@@ -290,7 +290,7 @@ The startup banner reports what actually happened:
 `swarm : routing table 0 peer(s)` means the node never reached anyone, so
 provider records can be neither announced nor resolved. The daemon prints an
 explicit warning in that case rather than silently announcing nothing.
-`hf-ipfs status` shows the same number for a running daemon.
+`sf status` shows the same number for a running daemon.
 
 **A routing table is not optional.** Two races used to make sharing silently
 do nothing, and both are now handled by waiting for the table to fill before

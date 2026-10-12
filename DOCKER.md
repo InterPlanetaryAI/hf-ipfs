@@ -11,12 +11,12 @@ the CLI lives in the same image, so one image covers seeding and pulling.
 recorded by one process must resolve identically for every later one, or the
 shared blocks read as missing files.
 
-Inside the container, the defaults resolve to `/root/.hf-ipfs` and
+Inside the container, the defaults resolve to `/root/.swarmface` and
 `/root/.cache/huggingface/hub`. So you bind-mount the **real host
 directories at those exact same absolute paths**:
 
 ```
-${HOME}/.hf-ipfs            →  /root/.hf-ipfs              # identity, bbolt DB, control socket
+${HOME}/.swarmface          →  /root/.swarmface            # identity, bbolt DB, control socket
 ${HOME}/.cache/huggingface  →  /root/.cache/huggingface    # the real HF cache (the shared bytes)
 ```
 
@@ -31,8 +31,8 @@ would be valid in only one of the two worlds.
 Versioned images are published when a release is published; `:main` is rebuilt on every push to `main`:
 
 ```bash
-docker pull ghcr.io/<owner>/hf-ipfs:latest   # newest tag
-docker pull ghcr.io/<owner>/hf-ipfs:main     # newest main
+docker pull ghcr.io/<owner>/swarmface:latest   # newest tag
+docker pull ghcr.io/<owner>/swarmface:main     # newest main
 ```
 
 Tags: `X.Y.Z`, `X.Y`, `X` and `latest` per release (multi-arch: `linux/amd64`,
@@ -43,13 +43,13 @@ Public repo: no login needed. Private repo: `docker login ghcr.io`
 ## Build locally
 
 ```bash
-docker build -t hf-ipfs:local .
-docker build -t hf-ipfs:dev --build-arg VERSION=v0.2.0-rc1 .   # stamps `hf-ipfs version`
+docker build -t swarmface:local .
+docker build -t swarmface:dev --build-arg VERSION=v0.2.0-rc1 .   # stamps `sf version`
 ```
 
 Multi-stage: `golang:alpine` compiles with `CGO_ENABLED=0 -trimpath
 -s -w`; the final layer is plain `alpine:3.21` plus `ca-certificates`.
-`.dockerignore` keeps local state (`.hf-ipfs/`, `.ssh/`, the built binary)
+`.dockerignore` keeps local state (`.swarmface/`, `.ssh/`, the built binary)
 out of the build context.
 
 ## docker compose (recommended)
@@ -68,21 +68,21 @@ nocopy, announces on the public DHT, and serves peers on port 4008.
 ## Plain docker run
 
 ```bash
-docker run -d --name hf-ipfs \
+docker run -d --name swarmface \
   -p 4008:4008 \
-  -v "$HOME/.hf-ipfs:/root/.hf-ipfs" \
+  -v "$HOME/.swarmface:/root/.swarmface" \
   -v "$HOME/.cache/huggingface:/root/.cache/huggingface" \
   --restart unless-stopped \
-  hf-ipfs:local
+  swarmface:local
 ```
 
-Any CLI flag works as container args — the entrypoint is `hf-ipfs` itself:
+Any CLI flag works as container args — the entrypoint is `sf` itself:
 
 ```bash
 docker run --rm \
-  -v "$HOME/.hf-ipfs:/root/.hf-ipfs" \
+  -v "$HOME/.swarmface:/root/.swarmface" \
   -v "$HOME/.cache/huggingface:/root/.cache/huggingface" \
-  hf-ipfs:local daemon --listen /ip4/0.0.0.0/tcp/4101 --isolated
+  swarmface:local daemon --listen /ip4/0.0.0.0/tcp/4101 --isolated
 ```
 
 ## CLI commands
@@ -91,9 +91,9 @@ Run them inside the container, where they find the daemon's control socket in
 the mounted repo dir and proxy to it:
 
 ```bash
-docker compose exec hf-ipfs status
-docker compose exec hf-ipfs list
-docker compose exec hf-ipfs pull meta-llama/Llama-2-7b --commit <sha>
+docker compose exec swarmface status
+docker compose exec swarmface list
+docker compose exec swarmface pull meta-llama/Llama-2-7b --commit <sha>
 ```
 
 A one-off `docker run` of the same image also proxies — same repo mount,
@@ -101,13 +101,13 @@ same `api.sock` — so ad-hoc pulls reuse the running daemon's swarm:
 
 ```bash
 docker run --rm \
-  -v "$HOME/.hf-ipfs:/root/.hf-ipfs" \
+  -v "$HOME/.swarmface:/root/.swarmface" \
   -v "$HOME/.cache/huggingface:/root/.cache/huggingface" \
-  hf-ipfs:local pull testorg/testmodel
+  swarmface:local pull testorg/testmodel
 ```
 
 The host CLI works against the containerized daemon too: the socket lives
-inside the bind-mounted `~/.hf-ipfs`, so `hf-ipfs status` on the host
+inside the bind-mounted `~/.swarmface`, so `sf status` on the host
 connects to the daemon in the container. Keep the two versions in sync —
 the proxy speaks the daemon's CLI surface.
 
@@ -115,7 +115,7 @@ To stop the containerized daemon cleanly (flushes announcements, releases
 the repo lock), prefer `shutdown` over `kill`:
 
 ```bash
-docker compose exec hf-ipfs shutdown
+docker compose exec swarmface shutdown
 ```
 
 ## Tokens and secrets
@@ -125,7 +125,7 @@ literal you commit:
 
 ```bash
 HF_TOKEN=hf_xxx docker compose up -d          # compose inherits it from the shell
-docker run -d -e HF_TOKEN ... hf-ipfs:local   # plain run
+docker run -d -e HF_TOKEN ... swarmface:local   # plain run
 ```
 
 The token is used for Hub API resolution and `--from hf` fallback
@@ -157,12 +157,12 @@ The startup banner and `status` report the verdict (`reach : public` vs
 * **`shared : 0 revision(s)` / blocks missing later** — the cache was
   ingested under a *different* absolute path (e.g. an earlier run mounted
   `/data`). The filestore references no longer resolve. Re-ingest with the
-  correct mount (`hf-ipfs ingest <repo> --force`), or fix the mount.
+  correct mount (`sf ingest <repo> --force`), or fix the mount.
 * **`pull` says no daemon, but one is running** — the CLI isn't seeing the
   same repo mount; check `-v` paths and that `api.sock` exists inside the
-  container at `/root/.hf-ipfs/api.sock`.
+  container at `/root/.swarmface/api.sock`.
 * **`bind: address already in use`** — the host (or another container) owns
   4008. Change the published port and `--listen` together so the advertised
   port matches what's actually reachable.
 * **Container restarts loop** — usually the repo lock: a second daemon holds
-  `~/.hf-ipfs`. Only one writer per repo dir; stop the other node.
+  `~/.swarmface`. Only one writer per repo dir; stop the other node.
