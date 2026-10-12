@@ -1,7 +1,7 @@
 services:
   swarmface:
     build: .
-    image: swarmface:local
+    image: ghcr.io/interplanetaryai/swarmface:main
     ports:
       - "4008:4008" # libp2p swarm (DefaultListenPort)
     volumes:
