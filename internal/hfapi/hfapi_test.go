@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ipai/hf-ipfs/internal/hfcache"
 )
@@ -29,7 +30,7 @@ func TestDownloadSendsBearerToken(t *testing.T) {
 	c.Token = "hf_abc123"
 
 	var buf bytes.Buffer
-	if _, err := c.Download(context.Background(), "org/m", hfcache.Model, "abc", "f.bin", &buf); err != nil {
+	if _, err := c.Download(context.Background(), "org/m", hfcache.Model, "abc", "f.bin", -1, &buf); err != nil {
 		t.Fatalf("download: %v", err)
 	}
 	if *auth != "Bearer hf_abc123" {
@@ -41,7 +42,7 @@ func TestDownloadOmitsAuthorizationWhenUnset(t *testing.T) {
 	c, auth := recorder(t, http.StatusOK, "payload")
 
 	var buf bytes.Buffer
-	if _, err := c.Download(context.Background(), "org/m", hfcache.Model, "abc", "f.bin", &buf); err != nil {
+	if _, err := c.Download(context.Background(), "org/m", hfcache.Model, "abc", "f.bin", -1, &buf); err != nil {
 		t.Fatalf("download: %v", err)
 	}
 	if *auth != "" {
@@ -71,7 +72,7 @@ func TestErrorsDoNotLeakToken(t *testing.T) {
 	c.Token = secret
 
 	var buf bytes.Buffer
-	_, err := c.Download(context.Background(), "org/gated", hfcache.Model, "abc", "f.bin", &buf)
+	_, err := c.Download(context.Background(), "org/gated", hfcache.Model, "abc", "f.bin", -1, &buf)
 	if err == nil {
 		t.Fatal("want error on 403, got nil")
 	}
@@ -96,5 +97,41 @@ func TestResolveURLNeverContainsToken(t *testing.T) {
 	u := c.ResolveURL("org/m", hfcache.Model, "abc", "weights.bin")
 	if strings.Contains(u, "SUPERSECRET") {
 		t.Errorf("resolve URL leaked the token: %s", u)
+	}
+}
+
+// A lying endpoint that claims size=4 and streams forever must not fill the
+// disk: Download stops at maxBytes+1 and lets the caller's size check fire.
+func TestDownloadCapsOversizedBody(t *testing.T) {
+	c, _ := recorder(t, http.StatusOK, "0123456789")
+	var buf bytes.Buffer
+	n, err := c.Download(context.Background(), "org/m", hfcache.Model, "abc", "f.bin", 4, &buf)
+	if err != nil {
+		t.Fatalf("download: %v", err)
+	}
+	if n != 5 {
+		t.Errorf("wrote %d bytes, want 5 (maxBytes+1)", n)
+	}
+}
+
+// Headers arrive, then silence: the watchdog must cancel the request instead
+// of hanging io.Copy forever.
+func TestDownloadAbortsOnStalledBody(t *testing.T) {
+	defer func(d time.Duration) { bodyIdleTimeout = d }(bodyIdleTimeout)
+	bodyIdleTimeout = 150 * time.Millisecond
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		<-r.Context().Done() // body never arrives
+	}))
+	t.Cleanup(srv.Close)
+
+	c := NewClient(srv.URL)
+	var buf bytes.Buffer
+	if _, err := c.Download(context.Background(), "org/m", hfcache.Model, "abc", "f.bin", -1, &buf); err == nil {
+		t.Fatal("stalled body did not abort")
 	}
 }

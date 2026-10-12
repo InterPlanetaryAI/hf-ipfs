@@ -11,10 +11,15 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
+
+	logging "github.com/ipfs/go-log/v2"
 
 	"github.com/ipai/hf-ipfs/internal/hfcache"
 )
+
+var log = logging.Logger("sf/hfapi")
 
 // LFSInfo is the LFS pointer metadata HF returns with ?blobs=true.
 type LFSInfo struct {
@@ -95,9 +100,7 @@ func (c *Client) RepoInfoAt(ctx context.Context, repoID string, t hfcache.RepoTy
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
+	c.attachAuth(req)
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -158,9 +161,7 @@ func (c *Client) TreeAt(ctx context.Context, repoID string, t hfcache.RepoType, 
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
+	c.attachAuth(req)
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -204,22 +205,29 @@ func (c *Client) ResolveURL(repoID string, t hfcache.RepoType, revision, path st
 }
 
 // Download streams one file of a revision into w, following the redirect to
-// the CDN. It returns the number of bytes written.
+// the CDN. maxBytes bounds the response body (pass -1 for no bound): the
+// copy stops after one byte over the claim instead of writing terabytes to
+// a temp file before the caller's size check fires. bodyIdleTimeout is the
+// liveness bound that stands in for the deliberately absent whole-request
+// timeout: a server that sends headers and then trickles nothing would
+// otherwise hang the pull until the operator kills it. It returns the number
+// of bytes written.
 func (c *Client) Download(
 	ctx context.Context,
 	repoID string,
 	t hfcache.RepoType,
 	revision, path string,
+	maxBytes int64,
 	w io.Writer,
 ) (int64, error) {
 	u := c.ResolveURL(repoID, t, revision, path)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return 0, err
 	}
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
+	c.attachAuth(req)
 
 	resp, err := c.Stream.Do(req)
 	if err != nil {
@@ -231,7 +239,66 @@ func (c *Client) Download(
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return 0, fmt.Errorf("GET %s: HTTP %d: %s", u, resp.StatusCode, snippet(body))
 	}
-	return io.Copy(w, resp.Body)
+
+	var src io.Reader = resp.Body
+	if maxBytes >= 0 {
+		src = io.LimitReader(resp.Body, maxBytes+1)
+	}
+	last := &atomic.Int64{}
+	last.Store(time.Now().UnixNano())
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		tick := time.NewTicker(bodyIdleTimeout / 3)
+		defer tick.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-tick.C:
+				if time.Since(time.Unix(0, last.Load())) > bodyIdleTimeout {
+					log.Warnf("hf: %s silent for over %s, aborting", u, bodyIdleTimeout)
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	return io.Copy(w, &trackedReader{r: src, last: last})
+}
+
+// bodyIdleTimeout bounds silence from a streaming response body. The Stream
+// client has no whole-request timeout (multi-GB shards must survive); this
+// is the per-operation liveness bound that stands in for it.
+var bodyIdleTimeout = 60 * time.Second
+
+// insecureWarned keeps the cleartext-token warning to one line per process.
+var insecureWarned atomic.Bool
+
+// attachAuth sets the bearer header, warning once when a token is
+// configured against a non-TLS endpoint: the header would then cross the
+// wire in cleartext (URLs and errors are logged, the token never is).
+func (c *Client) attachAuth(req *http.Request) {
+	if c.Token == "" {
+		return
+	}
+	if !strings.HasPrefix(c.Endpoint, "https://") && insecureWarned.CompareAndSwap(false, true) {
+		log.Warnf("hf endpoint %s is not TLS but a token is configured: the Authorization header travels in cleartext", c.Endpoint)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+}
+
+// trackedReader stamps last with the time of the most recent completed read
+// so the watchdog can tell a slow stream from a dead one.
+type trackedReader struct {
+	r    io.Reader
+	last *atomic.Int64
+}
+
+func (tr *trackedReader) Read(p []byte) (int, error) {
+	n, err := tr.r.Read(p)
+	tr.last.Store(time.Now().UnixNano())
+	return n, err
 }
 
 // escapePath percent-encodes each path segment so filenames with spaces or
