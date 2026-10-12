@@ -143,7 +143,7 @@ func fetchBlob(
 	fmt.Fprintf(gitH, "blob %d\x00", f.Size)
 	w := io.MultiWriter(fh, sha256h, gitH)
 
-	n, err := client.Download(ctx, repoID, t, commit, f.Path, w)
+	n, err := client.Download(ctx, repoID, t, commit, f.Path, f.Size, w)
 	if err != nil {
 		_ = fh.Close()
 		_ = os.Remove(tmp)
