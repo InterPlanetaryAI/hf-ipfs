@@ -25,7 +25,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           author='${{ github.event.pull_request.user.login }}'
-          if gh api "repos/${{ github.repository }}/collaborators/${author}" --jq .permission >/dev/null 2>&1; then
+          # The bare /collaborators/<user> endpoint answers 204 with no body,
+          # so --jq always failed and even owners fell through to the label
+          # check. /permission is the variant that returns {permission: ...}.
+          if gh api "repos/${{ github.repository }}/collaborators/${author}/permission" --jq .permission >/dev/null 2>&1; then
             echo "ok=true" >> "$GITHUB_OUTPUT"   # collaborator: always run
             exit 0
           fi
