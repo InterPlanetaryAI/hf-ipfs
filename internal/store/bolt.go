@@ -1,5 +1,5 @@
 // Package store wraps bbolt as a `go-datastore` Batching implementation and
-// provides the single-writer advisory lock that guards the hf-ipfs repo.
+// provides the single-writer advisory lock that guards the swarmface repo.
 //
 // One bbolt file holds three logical buckets:
 //
@@ -7,10 +7,10 @@
 //	filestore -> multihash -> DataObj{path, offset, size} (nocopy refs)
 //	map       -> HF commit hash -> mapping JSON
 //
-// bbolt allows a single process to hold the file open, so every hf-ipfs
-// command takes an exclusive advisory flock on <repo>/hf-ipfs.lock for as long
+// bbolt allows a single process to hold the file open, so every swarmface
+// command takes an exclusive advisory flock on <repo>/swarmface.lock for as long
 // as it owns the store. The daemon exposes a Unix control socket so that
-// `hf-ipfs pull` keeps working while the daemon is running.
+// `sf pull` keeps working while the daemon is running.
 package store
 
 import (
@@ -244,7 +244,7 @@ func AcquireLock(path string) (*Lock, error) {
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		_ = f.Close()
-		return nil, fmt.Errorf("another hf-ipfs process holds %s: %w", path, err)
+		return nil, fmt.Errorf("another swarmface process holds %s: %w", path, err)
 	}
 	return &Lock{file: f}, nil
 }
