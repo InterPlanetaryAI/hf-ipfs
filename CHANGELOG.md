@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/InterPlanetaryAI/hf-ipfs/compare/v0.4.1...v0.4.2) (2026-10-12)
+
+
+### Bug Fixes
+
+* inbound conn ceilings ([#14](https://github.com/InterPlanetaryAI/hf-ipfs/issues/14)) ([60c19ed](https://github.com/InterPlanetaryAI/hf-ipfs/commit/60c19ed8dea93be43862fe029bb7221ed7b69839))
+
 ## [0.4.1](https://github.com/InterPlanetaryAI/hf-ipfs/compare/v0.4.0...v0.4.1) (2026-10-11)
 
 
