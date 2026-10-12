@@ -377,17 +377,39 @@ func WriteSnapshot(p Paths, commit string, files []mapping.FileManifest, ref str
 	return WriteRef(p, ref, commit)
 }
 
+// writeAtomic writes data to a uniquely-named temp file in the target's
+// directory and renames it into place. A fixed ".tmp" name would let another
+// local user pre-create a symlink there and have the next write land through
+// it on a file of their choosing.
+func writeAtomic(target string, data []byte, mode os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(target), filepath.Base(target)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(name)
+		return err
+	}
+	if err := tmp.Chmod(mode); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(name)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(name)
+		return err
+	}
+	return os.Rename(name, target)
+}
+
 // WriteRef writes `refs/<ref>` atomically.
 func WriteRef(p Paths, ref, commit string) error {
 	if err := os.MkdirAll(p.Refs, 0o755); err != nil {
 		return err
 	}
-	target := p.RefPath(ref)
-	tmp := target + ".tmp"
-	if err := os.WriteFile(tmp, []byte(commit+"\n"), 0o644); err != nil {
-		return fmt.Errorf("write refs/%s: %w", ref, err)
-	}
-	return os.Rename(tmp, target)
+	return writeAtomic(p.RefPath(ref), []byte(commit+"\n"), 0o644)
 }
 
 func under(root, path string) bool {

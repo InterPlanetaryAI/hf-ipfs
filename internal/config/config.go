@@ -159,7 +159,7 @@ func Default() (*Config, error) {
 // EnsureDirs creates the state directories the node needs.
 func (c *Config) EnsureDirs() error {
 	for _, d := range []string{c.RepoDir} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
+		if err := os.MkdirAll(d, 0o700); err != nil {
 			return fmt.Errorf("create %s: %w", d, err)
 		}
 	}

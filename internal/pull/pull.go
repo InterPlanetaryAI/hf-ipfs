@@ -426,7 +426,7 @@ func reconstructFile(
 		return fmt.Errorf("peer sent no sha256 for %s", f.Path)
 	}
 	blobPath := paths.BlobPath(f.BlobName)
-	perm := os.FileMode(f.Mode)
+	perm := os.FileMode(f.Mode) & 0o777
 	if perm == 0 {
 		perm = 0o644
 	}

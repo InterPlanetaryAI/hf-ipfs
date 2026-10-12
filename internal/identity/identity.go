@@ -7,9 +7,12 @@ import (
 	"os"
 	"path/filepath"
 
+	logging "github.com/ipfs/go-log/v2"
 	ic "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
+
+var log = logging.Logger("sf/identity")
 
 // Load reads an existing identity without creating one.
 func Load(path string) (ic.PrivKey, peer.ID, error) {
@@ -17,6 +20,7 @@ func Load(path string) (ic.PrivKey, peer.ID, error) {
 	if err != nil {
 		return nil, "", err
 	}
+	warnIfReadable(path)
 	key, err := ic.UnmarshalPrivateKey(raw)
 	if err != nil {
 		return nil, "", fmt.Errorf("parse identity %s: %w", path, err)
@@ -28,6 +32,17 @@ func Load(path string) (ic.PrivKey, peer.ID, error) {
 	return key, id, nil
 }
 
+// warnIfReadable flags a private key that outlived its 0600 intent — a key
+// restored by cp or extracted with a permissive umask lets every local user
+// impersonate this peer. Warn, do not refuse: the operator can still fix it.
+func warnIfReadable(path string) {
+	st, err := os.Stat(path)
+	if err == nil && st.Mode().Perm()&0o077 != 0 {
+		log.Warnf("identity %s mode %v: group/other can read the private key and impersonate this peer",
+			path, st.Mode().Perm())
+	}
+}
+
 // LoadOrGenerate reads the private key at path, creating and persisting a fresh
 // Ed25519 key pair when none exists yet.
 func LoadOrGenerate(path string) (ic.PrivKey, peer.ID, error) {
@@ -37,6 +52,7 @@ func LoadOrGenerate(path string) (ic.PrivKey, peer.ID, error) {
 	}
 
 	if err == nil {
+		warnIfReadable(path)
 		key, uerr := ic.UnmarshalPrivateKey(raw)
 		if uerr != nil {
 			return nil, "", fmt.Errorf("parse identity %s: %w", path, uerr)

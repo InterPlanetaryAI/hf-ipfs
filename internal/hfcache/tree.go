@@ -89,13 +89,8 @@ func WriteTree(p Paths, commit string, files []mapping.FileManifest) error {
 		return fmt.Errorf("encode tree for %s: %w", commit, err)
 	}
 
-	target := p.TreePath(commit)
-	tmp := target + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return fmt.Errorf("write %s: %w", target, err)
-	}
-	if err := os.Rename(tmp, target); err != nil {
-		return fmt.Errorf("rename %s -> %s: %w", tmp, target, err)
+	if err := writeAtomic(p.TreePath(commit), data, 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", p.TreePath(commit), err)
 	}
 	return nil
 }

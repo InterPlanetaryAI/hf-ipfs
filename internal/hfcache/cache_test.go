@@ -406,3 +406,36 @@ func TestCurrentCommitRejectsNonHex(t *testing.T) {
 		t.Error("a 40-char non-hex ref should be rejected")
 	}
 }
+
+func TestWriteRefAndTreeModesAndNoLeftovers(t *testing.T) {
+	hub := t.TempDir()
+	p := NewPaths(hub, "a/b", Model)
+	if err := WriteRef(p, "main", testCommit); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteTree(p, testCommit, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		dir  string
+		want os.FileMode
+	}{
+		{p.Refs, 0o644},
+		{p.Trees, 0o600},
+	} {
+		es, err := os.ReadDir(tc.dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(es) != 1 {
+			t.Fatalf("%s: %d entries, want 1 (temp leftover?)", tc.dir, len(es))
+		}
+		st, err := os.Stat(filepath.Join(tc.dir, es[0].Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Mode().Perm() != tc.want {
+			t.Errorf("%s mode = %v, want %v", tc.dir, st.Mode().Perm(), tc.want)
+		}
+	}
+}
