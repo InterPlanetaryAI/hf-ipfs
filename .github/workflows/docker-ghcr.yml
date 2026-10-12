@@ -7,8 +7,6 @@ name: Docker CI (ghcr.io)
 # (or the author is already a repo collaborator). The gate job below
 # skips everything else before any code from the PR is executed.
 on:
-  push:
-    branches: [main]
   pull_request_target:
     types: [opened, reopened, synchronize, labeled]
 
