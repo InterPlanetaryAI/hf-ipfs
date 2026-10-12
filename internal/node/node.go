@@ -188,11 +188,15 @@ func New(ctx context.Context, cfg *config.Config) (*Node, error) {
 	cm, err := bconnmgr.NewConnManager(connLowWater, connHighWater,
 		bconnmgr.WithGracePeriod(connGracePeriod))
 	if err != nil {
+		_ = st.Close()
+		_ = lock.Close()
 		return nil, err
 	}
 
 	rm, err := rcmgr.NewResourceManager(rcmgr.NewFixedLimiter(connLimits()))
 	if err != nil {
+		_ = st.Close()
+		_ = lock.Close()
 		return nil, err
 	}
 
@@ -661,6 +665,17 @@ func (n *Node) handleMap(s network.Stream) {
 		log.Warnf("map: bad request: %s", err)
 		return
 	}
+	// The DHT key is the commit-derived dummy CID, so a well-formed request
+	// always carries 40 hex; anything else is a hand-built frame.
+	if _, err := dummy.FromCommit(req.CommitHash); err != nil {
+		log.Debugw("map: invalid commit hash", "peer", s.Conn().RemotePeer())
+		_ = s.SetWriteDeadline(time.Now().Add(30 * time.Second))
+		_ = protoio.WriteJSON(s, &wire.MapResponse{
+			CommitHash: req.CommitHash,
+			Error:      "commit hash must be 40 hex characters",
+		})
+		return
+	}
 
 	// Answering the map query is what authorises the bulk transfer that
 	// follows, so this is the right place to refuse: the puller gets a readable
@@ -683,7 +698,10 @@ func (n *Node) handleMap(s network.Stream) {
 	entry, ok, err := n.Mapping.Get(n.ctx, req.CommitHash)
 	switch {
 	case err != nil:
-		resp.Error = fmt.Sprintf("lookup failed: %v", err)
+		// Internal error text (datastore paths, stored keys) stays in the
+		// log; the peer gets a fixed string.
+		log.Warnw("map: lookup failed", "commit", req.CommitHash, "err", err)
+		resp.Error = "lookup failed"
 	case !ok:
 		resp.Error = "commit not shared by this peer"
 	default:

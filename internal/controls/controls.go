@@ -54,11 +54,15 @@ func Call(socketPath string, req wire.ControlRequest, fn func(wire.ControlEvent)
 	if err := protoio.WriteJSON(c, req); err != nil {
 		return fmt.Errorf("send control request: %w", err)
 	}
+	// The server always terminates a command with a done or error event, so
+	// EOF without one means the daemon died (or the connection deadline
+	// fired) mid-operation. Reporting success there hides exactly the
+	// half-finished pull the verify-then-rename invariant is meant to bound.
 	for {
 		var ev wire.ControlEvent
 		if err := protoio.ReadJSON(c, &ev); err != nil {
 			if errors.Is(err, io.EOF) {
-				return nil
+				return errors.New("daemon closed control connection before completing")
 			}
 			return fmt.Errorf("read control event: %w", err)
 		}
@@ -135,11 +139,21 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 
 	var req wire.ControlRequest
 	if err := protoio.ReadJSON(conn, &req); err != nil {
-		writeEvent(conn, wire.ControlEvent{Type: "error", Message: err.Error()})
+		_ = writeEvent(conn, wire.ControlEvent{Type: "error", Message: err.Error()})
 		return
 	}
 
-	ev := func(e wire.ControlEvent) error { writeEvent(conn, e); return nil }
+	// A client that vanished must not leave the daemon streaming a multi-GB
+	// pull to nowhere: the first failed event write cancels the operation.
+	cctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ev := func(e wire.ControlEvent) error {
+		if err := writeEvent(conn, e); err != nil {
+			cancel()
+			return err
+		}
+		return nil
+	}
 
 	switch req.Cmd {
 	case wire.CmdPull:
@@ -153,7 +167,7 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 			ev(wire.ControlEvent{Type: "error", Message: "pull: " + err.Error()})
 			return
 		}
-		err = pull.Run(ctx, s.n, pull.Options{
+		err = pull.Run(cctx, s.n, pull.Options{
 			RepoID:   req.RepoID,
 			RepoType: t,
 			Commit:   req.Commit,
@@ -183,7 +197,7 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 				return
 			}
 		}
-		res, err := ingest.Run(ctx, s.n, req.RepoID, t, commit, func(m string) {
+		res, err := ingest.Run(cctx, s.n, req.RepoID, t, commit, func(m string) {
 			ev(wire.ControlEvent{Type: "progress", Message: m})
 		})
 		if err != nil {
@@ -222,7 +236,7 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 				ev(wire.ControlEvent{Type: "error", Message: msg})
 				return
 			}
-			if err := evict.Commit(ctx, tgt, entry, func(m string) {
+			if err := evict.Commit(cctx, tgt, entry, func(m string) {
 				ev(wire.ControlEvent{Type: "progress", Message: m})
 			}); err != nil {
 				ev(wire.ControlEvent{Type: "error", Message: err.Error()})
@@ -231,7 +245,7 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 			ev(wire.ControlEvent{Type: "done", Message: fmt.Sprintf("evicted %s@%s", entry.RepoID, short(entry.CommitHash))})
 			return
 		}
-		n, err := evict.Repo(ctx, tgt, req.RepoID, func(m string) {
+		n, err := evict.Repo(cctx, tgt, req.RepoID, func(m string) {
 			ev(wire.ControlEvent{Type: "progress", Message: m})
 		})
 		if err != nil {
@@ -252,10 +266,12 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 	}
 }
 
-func writeEvent(conn net.Conn, e wire.ControlEvent) {
+func writeEvent(conn net.Conn, e wire.ControlEvent) error {
 	if err := protoio.WriteJSON(conn, e); err != nil {
 		log.Debugf("write control event: %s", err)
+		return err
 	}
+	return nil
 }
 
 func probe(socketPath string) bool {
