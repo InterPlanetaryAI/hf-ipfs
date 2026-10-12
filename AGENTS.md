@@ -172,6 +172,15 @@ argv is world-readable through `ps`. The banner masks the value (`token=set (…
   requesters (`Conn().Stat().Limited`) so the puller gets a readable error and
   moves to the next candidate; `handleBlocks` resets as defence in depth. Direct
   and hole-punched connections are never `Limited`.
+- **A private seeder must hold a relay reservation.** With no circuit address
+  there is nothing routable in the provider record: pullers dial `127.0.0.1`
+  (their own machine, "dial to self attempted") or the Docker bridge, and DCUtR
+  has no candidate to punch at. `node.New` therefore enables AutoRelay with a
+  peer source built from peers advertising the circuit v2 hop service, so a NAT'd
+  node reserves a relay without being handed a list; `--static-relay` still wins
+  when set. Reservations do go stale — when a relay drops the connection the
+  address can linger in the announcement, and a puller hopping then gets
+  `error opening relay circuit: CONNECTION_FAILED`.
 - **Hole punching does not make you a server.** A punched connection is dialable
   only by the peer that punched it; AutoNAT still reports `Private` and kad-dht
   will not advertise the node as a server peer. It is additive to bootstrap,
