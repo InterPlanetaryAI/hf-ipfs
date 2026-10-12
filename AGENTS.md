@@ -176,20 +176,22 @@ argv is world-readable through `ps`. The banner masks the value (`token=set (…
   only by the peer that punched it; AutoNAT still reports `Private` and kad-dht
   will not advertise the node as a server peer. It is additive to bootstrap,
   never a substitute for reachability.
-- **Outbound connections must stay bounded.** The DHT dials continuously and
-  nothing else ever closes a healthy-but-useless connection, so an unmanaged node
-  accumulates 150+ outbound conns and walks into go-libp2p's default
-  resource-manager budget — 128 conns base plus 128 per GiB of RAM/8 (observed
-  189 on a 3.8 GiB box). The outbound sub-limit is scaled the same way, so
-  outbound alone can consume the entire system scope; once it does, the
-  *listener* closes each accept before the security negotiation, so strangers see
-  `failed to negotiate security protocol: connection reset`, AutoNAT flips to
-  `Private`, and the node silently stops being pullable while its own banner
-  still looks healthy. The `connmgr` watermarks in `node.New` are the guard, and
-  they only bind while `connHighWater` stays under the rcmgr base budget —
-  `TestConnWatermarksUnderBudget` guards that. The trim loop runs once per
-  silence period (10 s default); the grace period is how long a freshly dialed
-  conn is exempt from pruning.
+- **Both connection directions need headroom, or the listener starves.** The DHT
+  dials continuously and nothing else closes a healthy-but-useless connection, so
+  an unmanaged node accumulates 150+ outbound conns; go-libp2p's default budget
+  (128 conns base, +128 per GiB of RAM/8 — 189 on a 3.8 GiB box) scales the
+  outbound sub-limit the same way, so outbound alone consumes the whole system
+  scope. The inbound sub-limit is tighter still (64 base, +64 per GiB — 94 on that
+  box), and a node that publishes a port is dialled and scanned by the whole
+  internet, so junk fills it and real pullers are refused. Either way the symptom
+  is identical and invisible from the seeder's side: the listener closes each
+  accept *before* the security negotiation, strangers see
+  `failed to negotiate security protocol: connection reset`, AutoNAT flaps
+  Public/Private as the budget fills and drains, and the banner still looks
+  healthy. The guards are the `connmgr` watermarks and the raised ceilings in
+  `connLimits`, both wired in `node.New`; `TestConnWatermarksUnderBudget` pins the
+  relationship between them. The trim loop runs once per silence period (10 s
+  default); the grace period is how long a freshly dialed conn is exempt.
 - **Fixed listen port 4008**, not `tcp/0`. An ephemeral port cannot be
   port-forwarded, which silently disqualifies a node from being dialable by
   strangers. 4008 avoids Kubo's 4001.
