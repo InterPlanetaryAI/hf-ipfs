@@ -332,6 +332,7 @@ func truncatePeerError(s string) string {
 	}
 	return s[:maxPeerErrorLen] + "… (truncated)"
 }
+
 // dialHint names the address that failed and what the failure means. libp2p
 // stops at "all dials failed". The distinction that matters for a provider is
 // between "nothing is reachable at that address" and "the peer accepted the
