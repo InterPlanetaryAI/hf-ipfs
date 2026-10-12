@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.3](https://github.com/InterPlanetaryAI/hf-ipfs/compare/v0.4.2...v0.4.3) (2026-10-12)
+
+
+### Bug Fixes
+
+* **ci:** trigger release workflow via workflow_run, not release: published ([#17](https://github.com/InterPlanetaryAI/hf-ipfs/issues/17)) ([0a70fdf](https://github.com/InterPlanetaryAI/hf-ipfs/commit/0a70fdf574a5429ae03b491bc2f97a8a8e41531f))
+
 ## [0.4.2](https://github.com/InterPlanetaryAI/hf-ipfs/compare/v0.4.1...v0.4.2) (2026-10-12)
 
 
