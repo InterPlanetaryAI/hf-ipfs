@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.6.0](https://github.com/InterPlanetaryAI/sf-go/compare/v0.5.0...v0.6.0) (2026-10-12)
+
+
+### Features
+
+* daemon stop ([#23](https://github.com/InterPlanetaryAI/sf-go/issues/23)) ([28f57b0](https://github.com/InterPlanetaryAI/sf-go/commit/28f57b0fb726ac5d4c77ea38090369d1648a19ea))
+
+
+### Bug Fixes
+
+* **controls:** EOF without done is an error; vanished client cancels the pull ([#33](https://github.com/InterPlanetaryAI/sf-go/issues/33)) ([0cc999f](https://github.com/InterPlanetaryAI/sf-go/commit/0cc999ff0eb140a4e26a1edead20ea3a5a6c3e14))
+* **hfapi:** bound download size, body silence, and cleartext tokens ([#29](https://github.com/InterPlanetaryAI/sf-go/issues/29)) ([7cb2b75](https://github.com/InterPlanetaryAI/sf-go/commit/7cb2b75f2d226700426ea5cac4e095ae1a7a6039))
+* **hfapi:** validate commit hashes as hex and escape path segments in URLs ([#30](https://github.com/InterPlanetaryAI/sf-go/issues/30)) ([0331b8e](https://github.com/InterPlanetaryAI/sf-go/commit/0331b8e8801d7bf15c2d31ebe09bc57948decf10))
+* **node:** bound the two custom protocol handlers with deadlines and a batch cap ([#27](https://github.com/InterPlanetaryAI/sf-go/issues/27)) ([faf4b29](https://github.com/InterPlanetaryAI/sf-go/commit/faf4b29ae54c9153ab5ae0d33ec000e65d27f871))
+* **perms:** owner-only state dir, db and socket; mask peer modes; unique tmp names ([#32](https://github.com/InterPlanetaryAI/sf-go/issues/32)) ([7044616](https://github.com/InterPlanetaryAI/sf-go/commit/7044616c649aba8bf1fdea1aa458f29bda2d4e51))
+* **pull:** bind p2p content to the commit and make sha256 mandatory ([#26](https://github.com/InterPlanetaryAI/sf-go/issues/26)) ([eab4ab0](https://github.com/InterPlanetaryAI/sf-go/commit/eab4ab0c9c625e901f25bbacfa30fcfa5a6085ff))
+* **pull:** cap the leaf list a peer-shaped DAG can force into memory ([#28](https://github.com/InterPlanetaryAI/sf-go/issues/28)) ([da93098](https://github.com/InterPlanetaryAI/sf-go/commit/da93098a87b7d5853685ce75434aeccd37380b2f))
+* **pull:** reject traversal in peer and Hub manifest paths ([#25](https://github.com/InterPlanetaryAI/sf-go/issues/25)) ([49a3051](https://github.com/InterPlanetaryAI/sf-go/commit/49a30519485216b7c357de954ae75c94b7f6aadd))
+
 ## [0.5.0](https://github.com/InterPlanetaryAI/hf-ipfs/compare/v0.4.4...v0.5.0) (2026-10-12)
 
 
