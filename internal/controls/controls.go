@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/ipai/hf-ipfs/internal/evict"
@@ -83,13 +84,18 @@ func Serve(ctx context.Context, n *node.Node, socketPath string) (*Server, error
 			_ = os.Remove(socketPath)
 		}
 	}
+	// Go creates the socket 0777 & ~umask, which under a permissive umask
+	// (002, 000) leaves it connectable by group/other between bind() and the
+	// chmod below — and connections queued in that window are served after
+	// it. Control requests carry an HF access token, so the socket must be
+	// born owner-only: tighten the umask across the listen itself.
+	old := syscall.Umask(0o177)
 	ln, err := net.Listen("unix", socketPath)
+	syscall.Umask(old)
 	if err != nil {
 		return nil, fmt.Errorf("listen %s: %w", socketPath, err)
 	}
-	// Go creates the socket 0777 & ~umask, which under a normal umask of
-	// 022 leaves it connectable by any local user. Control requests now
-	// carry an HF access token, so this has to be owner-only.
+	// Belt and braces for a pre-existing file the bind replaced.
 	if err := os.Chmod(socketPath, 0o600); err != nil {
 		_ = ln.Close()
 		return nil, fmt.Errorf("chmod %s: %w", socketPath, err)

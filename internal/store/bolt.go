@@ -40,7 +40,7 @@ type Store struct {
 
 // Open creates (if needed) and opens the bbolt backing file.
 func Open(path string) (*Store, error) {
-	db, err := bolt.Open(path, 0o644, &bolt.Options{Timeout: 0})
+	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: 0})
 	if err != nil {
 		return nil, fmt.Errorf("open bolt db %s: %w", path, err)
 	}
