@@ -100,7 +100,7 @@ HF cache at `--hf-hub` (default `$HF_HUB_CACHE`, else `$HF_HOME/hub`, else
 | `status` | Daemon state and listen addresses |
 | `id` | This node's persistent peer ID |
 | `resolve <repo_id>` | Latest commit and its dummy CID, straight from the HF API |
-| `shutdown` | Stop a running daemon |
+| `shutdown` (or `daemon stop`) | Stop a running daemon |
 
 Useful flags: `--commit`, `--ref`, `--repo-type model|dataset|space`,
 `--from p2p|hf|p2p,hf` (where content may come from; default `p2p,hf`),

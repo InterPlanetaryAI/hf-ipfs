@@ -8,6 +8,7 @@
 //
 //	sf daemon [--listen <ma>] [--bootstrap <ma>] [--connect <ma>]
 //	               [--chunk-size N] [--no-watch] [--dht-client] [--rescan DUR]
+//	sf daemon stop — stop a running daemon
 //	sf pull|download <repo_id> [--commit <hash>] [--ref main] [--repo-type model]
 //	             [--peer <ma>] [--force] [--no-daemon] [--no-fork]
 //	sf ingest <repo_id> [--commit <hash>] [--ref main] [--repo-type model]
@@ -183,6 +184,10 @@ func (s *stringList) String() string     { return strings.Join(*s, ",") }
 func (s *stringList) Set(v string) error { *s = append(*s, v); return nil }
 
 func cmdDaemon(args []string) error {
+	// `sf daemon stop` is the natural spelling of `sf shutdown`.
+	if len(args) > 0 && args[0] == "stop" {
+		return cmdShutdown(args[1:])
+	}
 	fs := flag.NewFlagSet("daemon", flag.ContinueOnError)
 	var c commonFlags
 	c.register(fs)
@@ -865,6 +870,7 @@ func usage() {
 
 Commands:
   daemon      Share the local HF cache: watch, ingest (nocopy), announce, serve
+  daemon stop Stop a running daemon (same as: sf shutdown)
   pull, download
               Pull a repo from peers instead of Hugging Face's servers
               (starts a background daemon if none is running; --no-fork disables)
