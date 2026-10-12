@@ -1,14 +1,45 @@
 name: Release
 
-# Everything that happens once a release PR is merged. release-please has already
-# created the tag vX.Y.Z and the GitHub release by then; this workflow only
-# fills it out with binaries and container images.
+# release-please creates the tag and GitHub release with the workflow's
+# GITHUB_TOKEN, and GitHub NEVER triggers workflows from events created by
+# that token — so `on: release: published` can never fire here (this is why
+# this workflow had zero runs despite releases existing). Instead we run when
+# the Release Please workflow completes and find the release it just
+# published by matching the release's target commit to that run's head SHA.
+# If release-please created no release (the common case for a plain push to
+# main), the resolve step outputs nothing and both build jobs are skipped.
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: ["Release Please"]
+    types: [completed]
 
 jobs:
+  resolve:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.find.outputs.tag }}
+      version: ${{ steps.find.outputs.version }}
+      major: ${{ steps.find.outputs.major }}
+      minor: ${{ steps.find.outputs.minor }}
+    steps:
+      - name: Find the release published by this run
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          tag=$(gh api "repos/${{ github.repository }}/releases" \
+            --jq ".[] | select(.target_commitish==\"$SHA\") | .tag_name")
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          ver="${tag#v}"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "major=${ver%%.*}" >> "$GITHUB_OUTPUT"
+          echo "minor=$(cut -d. -f2 <<<"$ver")" >> "$GITHUB_OUTPUT"
+
   binaries:
+    needs: resolve
+    if: needs.resolve.outputs.tag != ''
     name: Binaries (${{ matrix.goos }}/${{ matrix.goarch }})
     runs-on: ubuntu-latest
     permissions:
@@ -20,6 +51,8 @@ jobs:
         goarch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -28,16 +61,18 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
+          VER: ${{ needs.resolve.outputs.version }}
         run: |
-          ver="${GITHUB_REF_NAME#v}"
-          go build -trimpath -ldflags "-s -w -X main.version=$ver" -o hf-ipfs .
-          tar czf "hf-ipfs-$ver-$GOOS-$GOARCH.tar.gz" hf-ipfs
+          go build -trimpath -ldflags "-s -w -X main.version=$VER" -o hf-ipfs .
+          tar czf "hf-ipfs-$VER-$GOOS-$GOARCH.tar.gz" hf-ipfs
       - name: Upload
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" hf-ipfs-*.tar.gz
+        run: gh release upload "${{ needs.resolve.outputs.tag }}" hf-ipfs-*.tar.gz
 
   docker:
+    needs: resolve
+    if: needs.resolve.outputs.tag != ''
     name: Container images
     runs-on: ubuntu-latest
     permissions:
@@ -45,6 +80,8 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
 
       # GHCR image names must be lowercase; the owning org is not.
       - name: Image name
@@ -65,10 +102,13 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ steps.img.outputs.name }}
+          # metadata-action's semver type reads github.ref, which is the
+          # default branch under workflow_run, so spell the tags out from the
+          # resolved version instead.
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=raw,value=${{ needs.resolve.outputs.version }}
+            type=raw,value=${{ needs.resolve.outputs.major }}.${{ needs.resolve.outputs.minor }}
+            type=raw,value=${{ needs.resolve.outputs.major }}
             type=raw,value=latest
 
       - uses: docker/build-push-action@v6
@@ -78,6 +118,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: VERSION=${{ steps.meta.outputs.version }}
+          build-args: VERSION=${{ needs.resolve.outputs.version }}
           cache-from: type=gha,scope=release
           cache-to: type=gha,mode=max,scope=release
