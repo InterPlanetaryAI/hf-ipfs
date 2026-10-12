@@ -35,6 +35,7 @@ import (
 	swarm "github.com/libp2p/go-libp2p/p2p/net/swarm"
 
 	"github.com/ipai/hf-ipfs/internal/config"
+	"github.com/ipai/hf-ipfs/internal/dummy"
 	"github.com/ipai/hf-ipfs/internal/hfcache"
 	"github.com/ipai/hf-ipfs/internal/mapping"
 	"github.com/ipai/hf-ipfs/internal/node"
@@ -266,6 +267,9 @@ func mapExchange(ctx context.Context, n *node.Node, p peer.AddrInfo, repoID, com
 	if !resp.OK {
 		return cid.Undef, nil, errors.New(resp.Error)
 	}
+	if err := validateMapBinding(commit, &resp); err != nil {
+		return cid.Undef, nil, err
+	}
 	// The manifest names become filesystem paths on the sink side; reject
 	// traversal here, once, instead of guarding every write.
 	for _, f := range resp.Files {
@@ -278,6 +282,33 @@ func mapExchange(ctx context.Context, n *node.Node, p peer.AddrInfo, repoID, com
 		return cid.Undef, nil, fmt.Errorf("peer sent unusable actual cid %q: %w", resp.ActualCID, err)
 	}
 	return actual, &resp, nil
+}
+
+// validateMapBinding checks that a map response is about the commit we asked
+// for. Provider records are keyed on the commit-derived dummy CID but anyone
+// can announce one, so the response must agree with the request: the echoed
+// commit hash and, when present, the dummy CID (which is a pure function of
+// the commit) both have to match. Without this a peer holding an unrelated
+// DAG could answer for a popular commit and the puller would re-share it.
+func validateMapBinding(commit string, resp *wire.MapResponse) error {
+	if resp.CommitHash != commit {
+		return fmt.Errorf("peer answered for commit %q, not %q", resp.CommitHash, commit)
+	}
+	if resp.DummyCID == "" {
+		return nil
+	}
+	want, err := dummy.FromCommit(commit)
+	if err != nil {
+		return fmt.Errorf("commit %q has no dummy cid: %w", commit, err)
+	}
+	got, err := cid.Decode(resp.DummyCID)
+	if err != nil {
+		return fmt.Errorf("peer sent unusable dummy cid %q: %w", resp.DummyCID, err)
+	}
+	if !got.Equals(want) {
+		return fmt.Errorf("peer dummy cid %s does not match commit %s (want %s)", got, commit, want)
+	}
+	return nil
 }
 
 // dialHint names the address that failed and what the failure means. libp2p
@@ -377,18 +408,28 @@ func reconstructFile(
 	state *xferState,
 	ev EventFunc,
 ) error {
+	if f.SHA256 == "" {
+		// The manifest's own SHA-256 is the only binding between the name
+		// and the bytes; honest seeders always populate it (ReadSnapshot
+		// hashes every file), so an empty one is a malicious or broken peer.
+		return fmt.Errorf("peer sent no sha256 for %s", f.Path)
+	}
 	blobPath := paths.BlobPath(f.BlobName)
 	perm := os.FileMode(f.Mode)
 	if perm == 0 {
 		perm = 0o644
 	}
 
-	// Blob already present with the expected size: nothing to transfer.
+	// Blob already present with the expected size and content: nothing to
+	// transfer. Size alone is not enough — a file planted at this path by an
+	// earlier malicious manifest would otherwise be adopted verbatim.
 	if st, err := os.Stat(blobPath); err == nil && st.Size() == f.Size {
-		state.done += f.Size
-		ev(wire.ControlEvent{Type: "progress", Message: "cached " + f.Path,
-			Bytes: state.done, Total: state.total})
-		return nil
+		if sum, herr := hashFile(blobPath); herr == nil && sum == f.SHA256 {
+			state.done += f.Size
+			ev(wire.ControlEvent{Type: "progress", Message: "cached " + f.Path,
+				Bytes: state.done, Total: state.total})
+			return nil
+		}
 	}
 
 	if err := os.MkdirAll(paths.Blobs, 0o755); err != nil {
@@ -417,6 +458,9 @@ func reconstructFile(
 		blk, err := blocks.NewBlockWithCid(datas[0], fileCid)
 		if err != nil {
 			return fmt.Errorf("empty leaf %s failed integrity check: %w", fileCid, err)
+		}
+		if sum := sha256.Sum256(datas[0]); hex.EncodeToString(sum[:]) != f.SHA256 {
+			return fmt.Errorf("empty blob for %s: sha256 mismatch (content hashes to %x)", f.Path, sum)
 		}
 		if err := n.MainBS.Put(ctx, blk); err != nil {
 			return fmt.Errorf("store empty leaf for %s: %w", f.Path, err)
@@ -499,7 +543,7 @@ func reconstructFile(
 	}
 
 	digest := hex.EncodeToString(hasher.Sum(nil))
-	if f.SHA256 != "" && digest != f.SHA256 {
+	if digest != f.SHA256 {
 		return rollback(fmt.Errorf("sha256 mismatch: got %s want %s", digest, f.SHA256))
 	}
 	if written != f.Size {
@@ -678,6 +722,20 @@ func randSuffix() string {
 		return fmt.Sprintf("%d", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(b)
+}
+
+// hashFile streams a file through SHA-256 and returns the hex digest.
+func hashFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func shortPeer(p peer.ID) string {
