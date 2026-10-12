@@ -1,11 +1,11 @@
 .git
 .github
 .cache
-.hf-ipfs
+.swarmface
 .ssh
 .orca-worktree-trash
 .agents
-hf-ipfs
+sf
 *.tar.gz
 README.md
 PROMPT.md

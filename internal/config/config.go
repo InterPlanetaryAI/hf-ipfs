@@ -1,4 +1,4 @@
-// Package config resolves hf-ipfs runtime configuration from flags,
+// Package config resolves swarmface runtime configuration from flags,
 // environment variables and the well-known Hugging Face cache locations.
 package config
 
@@ -35,9 +35,9 @@ const (
 	DefaultListenPort = 4008
 )
 
-// Config holds every tunable of a hf-ipfs node.
+// Config holds every tunable of a swarmface node.
 type Config struct {
-	// RepoDir is hf-ipfs' own state directory: libp2p identity, blockstore,
+	// RepoDir is swarmface's own state directory: libp2p identity, blockstore,
 	// filestore index, mapping database and control socket live here.
 	RepoDir string
 
@@ -125,7 +125,9 @@ func Default() (*Config, error) {
 		return nil, fmt.Errorf("resolve home dir: %w", err)
 	}
 
-	repo := firstNonEmpty(os.Getenv("HF_IPFS_REPO"), filepath.Join(home, ".hf-ipfs"))
+	// SWARMFACE_REPO is current; HF_IPFS_REPO is the pre-rebrand name,
+	// honoured so existing setups keep working.
+	repo := firstNonEmpty(os.Getenv("SWARMFACE_REPO"), os.Getenv("HF_IPFS_REPO"), filepath.Join(home, ".swarmface"))
 
 	hfHome := firstNonEmpty(os.Getenv("HF_HOME"), filepath.Join(home, ".cache", "huggingface"))
 	hub := firstNonEmpty(os.Getenv("HF_HUB_CACHE"), filepath.Join(hfHome, "hub"))
@@ -168,10 +170,10 @@ func (c *Config) EnsureDirs() error {
 func (c *Config) KeyPath() string { return filepath.Join(c.RepoDir, "key") }
 
 // DBPath is the bbolt file backing blocks, filestore refs and mappings.
-func (c *Config) DBPath() string { return filepath.Join(c.RepoDir, "hf-ipfs.db") }
+func (c *Config) DBPath() string { return filepath.Join(c.RepoDir, "swarmface.db") }
 
 // LockPath is the advisory lock guarding the (single-writer) bbolt file.
-func (c *Config) LockPath() string { return filepath.Join(c.RepoDir, "hf-ipfs.lock") }
+func (c *Config) LockPath() string { return filepath.Join(c.RepoDir, "swarmface.lock") }
 
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {

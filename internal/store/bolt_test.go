@@ -176,7 +176,7 @@ func TestQueryAllReturnsValues(t *testing.T) {
 
 func TestLockIsExclusive(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "hf-ipfs.lock")
+	path := filepath.Join(dir, "swarmface.lock")
 
 	first, err := AcquireLock(path)
 	if err != nil {

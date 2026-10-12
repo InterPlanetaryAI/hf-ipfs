@@ -63,12 +63,12 @@ jobs:
           CGO_ENABLED: "0"
           VER: ${{ needs.resolve.outputs.version }}
         run: |
-          go build -trimpath -ldflags "-s -w -X main.version=$VER" -o hf-ipfs .
-          tar czf "hf-ipfs-$VER-$GOOS-$GOARCH.tar.gz" hf-ipfs
+          go build -trimpath -ldflags "-s -w -X main.version=$VER" -o sf .
+          tar czf "sf-$VER-$GOOS-$GOARCH.tar.gz" sf
       - name: Upload
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ needs.resolve.outputs.tag }}" hf-ipfs-*.tar.gz
+        run: gh release upload "${{ needs.resolve.outputs.tag }}" sf-*.tar.gz
 
   docker:
     needs: resolve
@@ -86,7 +86,7 @@ jobs:
       # GHCR image names must be lowercase; the owning org is not.
       - name: Image name
         id: img
-        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/swarmface" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3

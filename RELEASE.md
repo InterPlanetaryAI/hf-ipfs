@@ -24,7 +24,7 @@ This repo uses [release-please](https://github.com/googleapis/release-please). R
 
 4. **Artifacts are built and published** by `.github/workflows/release.yml`, triggered by
    the published release:
-   - `hf-ipfs-<ver>-<os>-<arch>.tar.gz` for linux/darwin × amd64/arm64, attached to the release
+   - `sf-<ver>-<os>-<arch>.tar.gz` for linux/darwin × amd64/arm64, attached to the release
    - multi-arch (`linux/amd64`, `linux/arm64`) images on `ghcr.io`, tagged
      `X.Y.Z`, `X.Y`, `X` and `latest`
 

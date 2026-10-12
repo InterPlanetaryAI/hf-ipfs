@@ -1,6 +1,6 @@
 // Package ingest turns a finalized Hugging Face snapshot revision into a UnixFS
 // DAG whose leaf chunks are filestore (nocopy) references pointing straight at
-// `hub/<repo>/blobs/<name>`. No model bytes are copied into hf-ipfs' own
+// `hub/<repo>/blobs/<name>`. No model bytes are copied into swarmface's own
 // datastore; only (path, offset, length) metadata is.
 package ingest
 
@@ -26,7 +26,7 @@ import (
 	"github.com/ipai/hf-ipfs/internal/node"
 )
 
-var log = logging.Logger("hf-ipfs/ingest")
+var log = logging.Logger("sf/ingest")
 
 // Result reports what a single ingest produced.
 type Result struct {

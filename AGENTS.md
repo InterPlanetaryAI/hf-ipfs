@@ -12,7 +12,7 @@ a dependency on an external IPFS daemon.
 ## Commands
 
 ```bash
-go build -o hf-ipfs .        # build
+go build -o sf .             # build
 go test ./...                # unit + in-process integration (~30s)
 go test -short ./...         # unit only; skips the bridge test
 gofmt -l .                   # must print nothing
@@ -24,7 +24,7 @@ and cuts releases. Nothing will catch a broken build or unformatted code for you
 run them yourself before committing.
 
 Release builds inject the version with
-`go build -trimpath -ldflags "-s -w -X main.version=$ver" -o hf-ipfs .`;
+`go build -trimpath -ldflags "-s -w -X main.version=$ver" -o sf .`;
 `main.version` defaults to `0.1.0` in `main.go`.
 
 If `go` is not on PATH on this workstation: `/tmp/state/sdk/go1.27.1/bin` with
@@ -64,7 +64,7 @@ Prove format changes against the real CLI:
 
 ```bash
 HF_HOME=/tmp/hfref hf download <repo>
-./hf-ipfs pull <repo> --from hf --repo /tmp/a/repo --hf-hub /tmp/a/hub
+./sf pull <repo> --from hf --repo /tmp/a/repo --hf-hub /tmp/a/hub
 cmp /tmp/hfref/hub/models--<org>--<name>/trees/<commit>.json \
     /tmp/a/hub/models--<org>--<name>/trees/<commit>.json
 ```
@@ -219,7 +219,7 @@ IPFS peer.
 
 ## Do not commit
 
-`.cache/` (a local HF hub created by test runs) and `.hf-ipfs/` (bbolt DB, lock,
+`.cache/` (a local HF hub created by test runs) and `.swarmface/` (bbolt DB, lock,
 and the **libp2p Ed25519 private key**). Both are gitignored — keep them out of
 `git add -A` sweeps.
 

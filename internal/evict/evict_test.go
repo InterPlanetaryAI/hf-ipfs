@@ -38,7 +38,7 @@ func setup(t *testing.T) *env {
 	t.Helper()
 	dir := t.TempDir()
 	hub := filepath.Join(dir, "hub")
-	st, err := store.Open(filepath.Join(dir, "hf-ipfs.db"))
+	st, err := store.Open(filepath.Join(dir, "swarmface.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

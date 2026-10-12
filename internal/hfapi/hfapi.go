@@ -31,7 +31,7 @@ type Sibling struct {
 	LFS       *LFSInfo `json:"lfs"`
 }
 
-// RepoInfo is the subset of the HF Hub API response hf-ipfs uses.
+// RepoInfo is the subset of the HF Hub API response swarmface uses.
 type RepoInfo struct {
 	ID       string    `json:"id"`
 	SHA      string    `json:"sha"`
@@ -74,7 +74,7 @@ func NewClient(endpoint string) *Client {
 }
 
 // RepoInfo fetches revision metadata. With blobs=true the response carries the
-// git blob id and LFS sha256 for every file, which hf-ipfs uses to cross-check
+// git blob id and LFS sha256 for every file, which swarmface uses to cross-check
 // what a peer advertised.
 func (c *Client) RepoInfo(ctx context.Context, repoID string, t hfcache.RepoType, blobs bool) (*RepoInfo, error) {
 	return c.RepoInfoAt(ctx, repoID, t, "", blobs)
